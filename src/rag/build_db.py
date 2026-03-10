@@ -421,8 +421,6 @@ def build_biomedical_rag_corpus(output_dir="biomedical_rag"):
 result = build_biomedical_rag_corpus("biomedical_rag")
 print(result)
 
-! ls -lh /content/biomedical_rag
-
 """# Supplementary Anatomical Corpora
 
 I've chosen three supplemental corpora to expand our anatomical retrieval knowledge base.
@@ -843,8 +841,6 @@ def build_irrelevant_programming_rag_corpus(output_dir="irrelevant_programming_r
 
 result = build_irrelevant_programming_rag_corpus("irrelevant_programming_rag")
 print(result)
-
-! ls -lh /content/irrelevant_programming_rag/
 
 """# Vector Store with ChromaDB
 
