@@ -57,10 +57,10 @@ class RAGRetriever:
 
 # --- Quick Test Block ---
 if __name__ == "__main__":
-	retriever = NERRetriever()
+	retriever = RAGRetriever()
 	
 	# Test with a biomedical query
 	sample_sentence = "The patient was diagnosed with severe hyperglycemia and requires immediate treatment."
 	
-	context = retriever.retrieve_context(sample_sentence, k=3)
+	context = retriever.retrieve_context(sample_sentence)
 	print(f"Retrieved Context:\n{context}")
