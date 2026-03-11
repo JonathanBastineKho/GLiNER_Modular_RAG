@@ -1,4 +1,4 @@
 from .rag.retriever import RAGRetriever
-from .models import GLiNERRagConcat
+from .models import GLiNERRagConcat, GLiNERRagCrossAttn
 
-__all__ = ["RAGRetriever", "GLiNERRagConcat"]
+__all__ = ["RAGRetriever", "GLiNERRagConcat", "GLiNERRagCrossAttn"]
