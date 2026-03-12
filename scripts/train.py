@@ -1,6 +1,6 @@
 import json, random, torch
-import torch.nn.functional as nn
 from pathlib import Path
+from src import RAGRetriever
 from src.models import GLiNERRagCrossAttn
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -64,14 +64,31 @@ collator = model.gliner.data_collator_class(
 criterion = torch.nn.BCEWithLogitsLoss()
 optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=1e-4)
 
+# Build RAG context once for every sample before training.
+retriever = RAGRetriever(k=3)
+queries = []
+for sample in data:
+    query_text = " ".join(sample["tokenized_text"])
+    queries.append(query_text)
+
+contexts = []
+for query_text in queries:
+    context_text = retriever.retrieve_context(query_text)
+    contexts.append(context_text)
+
+print("RAG retriever enabled.")
+
+
+# Start training proper
 for step in range(STEPS):
-    batch_items = random.sample(data, min(BATCH_SIZE, len(data)))
+    idxs = random.sample(range(len(data)), min(BATCH_SIZE, len(data)))
+    batch_items = [data[i] for i in idxs]
 
     # Collator takes a list of sample dicts and converts/pads them into a batched tensor dictionary.
     batch = to_dev(collator(batch_items, entity_types=labels))
 
-    # nnor now context = same text; replace with retrieved context later.
-    ctx_text = [" ".join(x["tokenized_text"]) for x in batch_items]
+    # Use retrieved context for cross-attention.
+    ctx_text = [contexts[i] for i in idxs]
     ctx = model.tokenizer(
         ctx_text, return_tensors="pt", padding=True, truncation=True, max_length=model.gliner.config.max_len
     )
