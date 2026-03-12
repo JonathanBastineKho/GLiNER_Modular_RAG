@@ -136,8 +136,6 @@ for step in range(STEPS):
     # clear old gradients from previous step.
     optimizer.zero_grad(); 
 
-    input ('Press enter to cotinue...')
-
     # forward pass: model(...) calls __call__ -> forward(...) internally.
     logits = model(
         context_ids=ctx_ids,
@@ -148,8 +146,8 @@ for step in range(STEPS):
     target = batch["labels"].float()
     logits, target = align_for_bce(logits, target)
 
-    if step == 0:
-        print(f"logits shape={tuple(logits.shape)} target shape={tuple(target.shape)}")
+    # print some status along the way
+    print(f"logits shape={tuple(logits.shape)} target shape={tuple(target.shape)}")
 
     loss = criterion(logits, target)
 
@@ -164,47 +162,3 @@ for step in range(STEPS):
 Path("models").mkdir(exist_ok=True)
 torch.save(model.context_cross_attn.state_dict(), "models/cross_attn.pt")
 print("saved models/cross_attn.pt (GLiNER frozen, cross-attn trained)")
-
-# from src import RAGRetriever
-# from src import GLiNERRagConcat
-# from src import GLiNERRagCrossAttn
-# #from .models import GLiNERRagCrossAttn
-
-
-# def run_ner_pipeline():
-#     print("Initializing RAG-Augmented NER Pipeline...")
-    
-#     # 1. Initialize both independent modules
-#     retriever = RAGRetriever(k=3)
-#     #ner_model = GLiNERRagConcat("urchade/gliner_large-v1")
-#     ner_model = GLiNERRagCrossAttn("urchade/gliner_large-v1")
-    
-#     # Define your target labels for the biomedical domain
-#     target_labels = ["disease", "chemical", "gene", "cell type"]
-    
-#     # Sample input text
-#     input_text = "A biguanide hypoglycemic agent used in the treatment of non-insulin-dependent diabetes mellitus not responding to dietary modification."
-    
-#     print(f"\nProcessing Text: {input_text}")
-    
-#     # 2. Retrieval Step
-#     print("\nRetrieving context from ChromaDB...")
-#     context_string = retriever.retrieve_context(input_text)
-#     print(f"Retrieved Context: {context_string[:150]}...") # Printing a snippet
-    
-#     # 3. Inference Step
-#     # Here is where you pass the output of your retriever into your teammate's model
-#     print("\nExtracting entities...")
-#     entities = ner_model.predict_entities(
-#         text=input_text, 
-#         labels=target_labels, 
-#         context=context_string,
-#     )
-    
-#     # 4. Output Results
-#     print("\n--- Extracted Entities ---")
-#     for entity in entities:
-#         print(f"Text: {entity['text']} | Label: {entity['label']} | Score: {entity['score']:.3f}")
-
-# if __name__ == "__main__":
-#     run_ner_pipeline()
