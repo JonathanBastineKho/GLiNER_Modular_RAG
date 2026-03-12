@@ -84,8 +84,10 @@ for step in range(STEPS):
     idxs = random.sample(range(len(data)), min(BATCH_SIZE, len(data)))
     batch_items = [data[i] for i in idxs]
 
-    # Collator takes a list of sample dicts and converts/pads them into a batched tensor dictionary.
-    batch = to_dev(collator(batch_items, entity_types=labels))
+    # Collator takes a list of sample dicts and converts/pads them into a batched tensor dictionary, of which some form VALID_KEYS
+    # Collator is aprt of __call__
+    batch_entity_types = [labels for _ in batch_items]
+    batch = to_dev(collator(batch_items, entity_types=batch_entity_types))
 
     # Use retrieved context for cross-attention.
     ctx_text = [contexts[i] for i in idxs]
