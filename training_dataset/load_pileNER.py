@@ -65,7 +65,7 @@ for i, example in enumerate(dataset):
 
 import json
 
-with open("json_pileNER.json1", "w") as f:
+with open("json_pileNER.json", "w") as f:
     for sample in data:
         json.dump(sample, f)
         f.write("\n")
