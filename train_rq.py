@@ -6,7 +6,7 @@ from src import GLiNERRagCrossAttn
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 TRAIN_DATA_PATH = Path("data/combined_dataset/train.jsonl")
 VAL_DATA_PATH = Path("data/combined_dataset/validation.jsonl")
-BATCH_SIZE, EPOCHS, MAX_SAMPLES = 1, 32, 8
+BATCH_SIZE, EPOCHS, MAX_SAMPLES = 32, 50, 8
 
 
 # Only pass tensors to device, keep other batch items (like id_to_classes dict) on CPU for collator decoding.
