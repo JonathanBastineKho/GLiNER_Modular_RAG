@@ -7,29 +7,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 TRAIN_DATA_PATH = Path("data/combined_dataset/train.jsonl")
 VAL_DATA_PATH = Path("data/combined_dataset/validation.jsonl")
 BATCH_SIZE, EPOCHS, MAX_SAMPLES = 1, 32, 8
-# # Example raw JSON sample:
-# # {"text":"today is a sunny day","entities":[{"start":11,"end":16,"label":"weather"}]}
-# # Example GLiNER format after conversion:
-# # {"tokenized_text":["today","is","a","sunny","day"],"ner":[[3,3,"weather"]]}
-# # (char span 11..16 for "sunny" becomes token span 3..3)
-# def to_sample(r):
-#     text, words, p, spans = r["text"], r["text"].split(), 0, []
 
-#     # Find each word in the original text to find their character spans. 
-#     # 'sunny' becomes indexed in span(4) = (11,16)
-#     for w in words:
-#         s = text.find(w, p); 
-#         e = s + len(w); 
-#         spans.append((s, e)); p = e
-    
-#     ner = []
-
-#     # Find in dict r the key "entities", i.e. searching for the label "weather"
-#     # To convert entities":[{"start":11,"end":16,"label":"weather"}]} -> ner = [[3,3,"weather"]]} 
-#     for ent in r.get("entities", []): 
-#         hit = [i for i, (a, b) in enumerate(spans) if b > ent["start"] and a < ent["end"]]
-#         if hit: ner.append([hit[0], hit[-1], ent["label"]])  #  ner = [[3,3,"weather"]]} 
-#     return {"tokenized_text": words, "ner": ner}
 
 # Only pass tensors to device, keep other batch items (like id_to_classes dict) on CPU for collator decoding.
 def to_dev(batch):
@@ -151,7 +129,6 @@ for epoch in range(1, EPOCHS+1):
     
     # Iterate through the shuffled list in chunks of BATCH_SIZE
     for i in range(0, len(all_idxs), BATCH_SIZE):
-        # idxs = random.sample(range(len(data)), min(BATCH_SIZE, len(data)))
         idxs = all_idxs[i:i+BATCH_SIZE]
         batch_items = [train_data[i] for i in idxs]
 
