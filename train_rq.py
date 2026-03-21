@@ -11,7 +11,7 @@ from google.colab import drive
 drive.mount('/content/drive')
 
 # Copy repo to local runtime (fast SSD)
-#!cp -r "/content/drive/MyDrive/Colab Notebooks/GLiNER_Modular_RAG" /content/
+!cp -r "/content/drive/MyDrive/Colab Notebooks/GLiNER_Modular_RAG" /content/
 !pwd
 
 # Commented out IPython magic to ensure Python compatibility.
@@ -132,6 +132,22 @@ def binary_accuracy(preds, y):
   acc = correct.sum() / len(correct)
   return acc
 
+def binary_prf(epoch_TP, epoch_FP, epoch_FN):
+    precision = epoch_TP / (epoch_TP + epoch_FP + 1e-8)
+    recall    = epoch_TP / (epoch_TP + epoch_FN + 1e-8)
+    f1        = 2 * precision * recall / (precision + recall + 1e-8)
+    return precision, recall, f1
+
+def binary_prf_counts(logits, targets, threshold=0.5):
+  probs = torch.sigmoid(logits)
+  preds = (probs > threshold).float()
+
+  TP = ((preds == 1) & (targets == 1)).sum().item()
+  FP = ((preds == 1) & (targets == 0)).sum().item()
+  FN = ((preds == 0) & (targets == 1)).sum().item()
+
+  return TP, FP, FN
+
 # --- 1. Data Loading ---
 print("Loading datasets...")
 # Should remove the MAX_SAMPLES for complete training
@@ -174,99 +190,85 @@ with open(PATH_VAL_DATA_RAG, 'rb') as f:
 
 def fn_score_postproc (output_logits, input_targets):
 
-  # 1. Reshape logits: [B, 56, 12, 13] → [B, 672, 13]
+  # 1. Reshape logits: [BATCH_SIZE, START_POS, WIDTH_SPAN, CLASS]: [B, 56, 12, 13] → [B, 672, 13]
   B, S, W, C = output_logits.shape
   logits = output_logits.view(B, S * W, C)  # [B, 672, 13]
 
   # 2. Targets already match flattened span layout
   targets = input_targets["labels"].float()  # [B, 672, 13]
 
-  # 3. Apply span mask to remove invalid spans
+  # 3. Apply span mask to every batch to remove invalid spans and hence invalid scores
   span_mask = input_targets["span_mask"].unsqueeze(-1)  # [B, 672, 1]
-
   logits = logits[span_mask.bool().expand_as(logits)] # model’s score: [B, 672, 1]
   targets = targets[span_mask.bool().expand_as(targets)] # target: 0 or 1, [B, 672, 13]
 
   return logits, targets
 
-def fn_train_batch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, criterion):
-    epoch_loss = 0
-    epoch_acc = 0
+def fn_run_epoch(model, collator, data, data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=True):
+    epoch_loss, epoch_TP, epoch_FP, epoch_FN = 0, 0, 0, 0
 
-    model.train()
+    if train:
+        model.train()
+    else:
+        model.eval()
 
-    # Create a list of all indices and shuffle it once per epoch
-    all_idxs = list(range(len(train_data)))
-    random.shuffle(all_idxs)
-    nbatches = len(all_idxs)//BATCH_SIZE
+    all_idxs = list(range(len(data)))
+    if train:
+        random.shuffle(all_idxs)
+
+    nbatches = len(all_idxs) // BATCH_SIZE
     if len(all_idxs) % BATCH_SIZE != 0:
-      nbatches += 1
+        nbatches += 1
 
-    for i in tqdm.trange(nbatches):
-        # Prepare data
-        idxs = all_idxs[i * BATCH_SIZE : (i + 1) * BATCH_SIZE]
-        train_data_b = [train_data[i] for i in idxs]
-        train_data_rag_b = [train_data_rag[i] for i in idxs]
-        batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(model, collator, train_data_b, train_data_rag_b)
+    context = torch.enable_grad() if train else torch.no_grad()
 
-        # Clear old gradients from previous step.
-        optimizer.zero_grad()
+    with context:
+        for i in tqdm.trange(nbatches):
 
-        # Send to model for training
-        logit_outputs = model(batch_ctx_ids, batch_ctx_mask,**batch_inputs)
+            # ===== Prepare batch =====
+            idxs = all_idxs[i * BATCH_SIZE : (i + 1) * BATCH_SIZE]
 
-        # Reformatting the scores to get correct format to calculate loss
-        logits, targets = fn_score_postproc(output_logits=logit_outputs, input_targets=batch_inputs)
-        num_elements = targets.numel()
+            data_b = [data[j] for j in idxs]
+            data_rag_b = [data_rag[j] for j in idxs]
 
-        # Compute BCE loss only on valid spans
-        loss = criterion(logits, targets)
-        acc = binary_accuracy(logits, targets)
+            batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(model, collator, data_b, data_rag_b)
 
-        loss.backward()
-        optimizer.step()
+            if train:
+                optimizer.zero_grad()
 
-        epoch_loss += loss.item()
-        epoch_acc += 0
+            # ===== Forward =====
+            logit_outputs = model(batch_ctx_ids, batch_ctx_mask, **batch_inputs)
+            logits, targets = fn_score_postproc(output_logits=logit_outputs,input_targets=batch_inputs)
 
-    return epoch_loss /nbatches, epoch_acc / nbatches
+            # ===== Compute pos_weightage =====
+            total_pos = (targets == 1).sum().item()
+            total_neg = (targets == 0).sum().item()
+            pos_weight_value = total_neg / max(total_pos, 1)
+            criterion = torch.nn.BCEWithLogitsLoss(reduction="mean",pos_weight=torch.tensor([pos_weight_value], device=DEVICE))
+            loss = criterion(logits, targets)
 
-def fn_eval_batch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, criterion):
-    epoch_loss = 0
-    epoch_acc = 0
+            # ===== Metrics =====
+            TP, FP, FN = binary_prf_counts(logits, targets, threshold=0.5)
 
-    model.eval()
+            # ===== Backprop (train only) =====
+            if train:
+                loss.backward()
+                optimizer.step()
 
-    # don't have to shuffle every epoch
-    all_idxs = list(range(len(val_data)))
-    nbatches = len(all_idxs)//BATCH_SIZE
-    if len(all_idxs) % BATCH_SIZE != 0:
-      nbatches += 1
+            # ===== Accumulate =====
+            epoch_loss += loss.item()
+            epoch_TP += TP
+            epoch_FP += FP
+            epoch_FN += FN
 
-    with torch.no_grad():
-      for i in tqdm.trange(nbatches):
+    # ===== Final metrics =====
+    precision = epoch_TP / (epoch_TP + epoch_FP + 1e-8)
+    recall    = epoch_TP / (epoch_TP + epoch_FN + 1e-8)
+    f1        = 2 * precision * recall / (precision + recall + 1e-8)
 
-          # Prepare data
-          idxs = all_idxs[i * BATCH_SIZE : (i + 1) * BATCH_SIZE]
-          val_data_b = [val_data[i] for i in idxs]
-          val_data_rag_b = [val_data_rag[i] for i in idxs]
-          batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(model, collator, val_data_b, val_data_rag_b)
+    epoch_loss = epoch_loss / nbatches
 
-          # Send to model for training
-          logit_outputs = model(batch_ctx_ids, batch_ctx_mask,**batch_inputs)
-
-          # Reformatting the scores to get correct format to calculate loss
-          logits, targets = fn_score_postproc (output_logits=logit_outputs, input_targets=batch_inputs)
-          num_elements = targets.numel()
-
-          # Compute BCE loss only on valid spans
-          loss = criterion(logits, targets)
-          acc = binary_accuracy(logits, targets)
-
-          epoch_loss += loss.item()
-          epoch_acc += 0
-
-    return epoch_loss / nbatches, epoch_acc / nbatches
+    return epoch_loss, precision, recall, f1
 
 def fn_prepare_batch(model, collator, train_data_b, train_data_rag_b):
   label_b = [labels for _ in train_data_b]
@@ -289,9 +291,6 @@ def fn_prepare_batch(model, collator, train_data_b, train_data_rag_b):
   assert batch_inputs["input_ids"].shape == batch_inputs["attention_mask"].shape
   assert batch_ctx_ids.shape == batch_ctx_mask.shape
 
-  #print(type(batch_inputs))
-  #print(batch_inputs.keys())
-
   return batch_inputs, batch_ctx_ids, batch_ctx_mask
 
 # Load GLiNER
@@ -310,48 +309,36 @@ collator = model.gliner.data_collator_class(
 import time
 
 criterion = torch.nn.BCEWithLogitsLoss( reduction='mean')
-optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=1e-4)
+optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=2e-4)
 
 # --- 4. Epoch-Based Train & Validate Loop ---
 save_dir = Path("models")
 save_dir.mkdir(exist_ok=True)
 save_path = save_dir/"cross_attn_best.pt"
 
-best_val_loss = float('inf') # Track the best loss
+best_val_loss = float('inf')
 
 # Start training proper
 for epoch in range(1, EPOCHS+1):
 
     start_time = time.perf_counter()
-
-    train_loss, train_acc = fn_train_batch (model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, criterion)
-    val_loss, val_acc = fn_eval_batch (model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, criterion)
+    train_loss, train_precision, train_recall, train_f1 = fn_run_epoch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=True)
+    val_loss, val_precision, val_recall, val_f1         = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=False)
     end_time = time.perf_counter()
-
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         torch.save(model.context_cross_attn.state_dict(), save_path)
 
-    print(f'Epoch: {epoch+1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
-    print(f'\tTrain Loss: {train_loss:.3f} | Train Acc: {train_acc*100:.2f}%')
-    print(f'\t Val. Loss: {val_loss:.3f} |  Val. Acc: {val_acc*100:.2f}%')
+    print(f'Epoch: {epoch:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
+    print(f'Train Loss: {train_loss:.3f} | Train Precision: {train_precision:.3f} | Train Recall: {train_recall:.3f} | Train F1: {train_f1:.3f} | ')
+    print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {train_precision:.3f} | Val. Recall: {train_recall:.3f}  | Val. F1: {train_f1:.3f} | ')
 
 print(f"\nTraining complete. Best model weights saved to {save_path}")
 
-# model.context_cross_attn.load_state_dict(torch.load(save_path))
+model.context_cross_attn.load_state_dict(torch.load(save_path))
 
-# test_loss, test_acc = fn_eval_batch (model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, criterion)
+test_loss, test_acc = fn_eval_batch (model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, criterion)
 
-# print(f'Test Loss: {test_loss:.3f} | Test Acc: {test_acc*100:.2f}%')
-
-# print(f"Epoch {epoch}/{EPOCHS} | Train Loss: {avg_train_loss:.4f} | Validation Loss: {avg_val_loss:.4f}")
-# # CHECKPOINTING
-#     if avg_val_loss < best_val_loss:
-#         best_val_loss = avg_val_loss
-#         torch.save(model.context_cross_attn.state_dict(), save_path)
-
-#     print("-" * 40)
-
-# print(f"\nTraining complete. Best model weights saved to {save_path}")
+print(f'Test Loss: {test_loss:.3f} | Test Acc: {test_acc*100:.2f}%')
