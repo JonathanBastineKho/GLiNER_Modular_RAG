@@ -40,6 +40,7 @@ PATH_VAL_DATA = Path("data/combined_dataset/validation.jsonl")
 PATH_TEST_DATA = Path("data/combined_dataset/test.jsonl")
 PATH_TRAIN_DATA_RAG = Path('data/combined_dataset/train_w_rag.pkl')
 PATH_VAL_DATA_RAG = Path('data/combined_dataset/val_w_rag.pkl')
+PATH_TEST_DATA_RAG = Path('data/combined_dataset/test_w_rag.pkl')
 
 BATCH_SIZE, EPOCHS = 32, 50
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -162,18 +163,25 @@ print(f'Number of testing examples: {len(test_data)}')
 labels = fn_aggre_labels(train_data)
 print(f"Target labels: {labels}")
 
+# This cell is to be run once only! After rag-retrieval is done, it is saved to the .pkl script
+# Subsequently, we just need to open the .pkl script to to see what has been retrieved by the rag, rather than running the rag every single launch of the script
+
+#import pickle
+
 # Build RAG context once for every sample before training to eliminate bottleneck of retrieving context every training step.
 retriever = RAGRetriever(k=3)
 print("RAG retriever enabled.")
 
-import pickle
+# train_data_rag = []
+# train_data_rag = fn_rag_context(train_data, retriever, num_print=5)
 
-train_data_rag = []
-train_data_rag = fn_rag_context(train_data, retriever, num_print=5)
+# val_data_rag = []
+# val_data_rag = fn_rag_context(val_data, retriever, num_print=5)
 
-val_data_rag = []
-val_data_rag = fn_rag_context(val_data, retriever, num_print=5)
-print("RAG retriever done.")
+# test_data_rag = []
+# test_data_rag = fn_rag_context(test_data, retriever, num_print=5)
+
+print("RAG retriever done for train/val/test data.")
 
 # with open(PATH_TRAIN_DATA_RAG, 'wb') as f:
 #     pickle.dump(train_data_rag, f)
@@ -181,11 +189,17 @@ print("RAG retriever done.")
 # with open(PATH_VAL_DATA_RAG, 'wb') as f:
 #     pickle.dump(val_data_rag, f)
 
+# with open(PATH_TEST_DATA_RAG, 'wb') as f:
+#     pickle.dump(test_data_rag, f)
+
 import pickle
 with open(PATH_TRAIN_DATA_RAG, 'rb') as f:
   train_contexts = pickle.load(f)
 
 with open(PATH_VAL_DATA_RAG, 'rb') as f:
+  val_contexts = pickle.load(f)
+
+with open(PATH_TEST_DATA_RAG, 'rb') as f:
   val_contexts = pickle.load(f)
 
 def fn_score_postproc (output_logits, input_targets):
@@ -204,7 +218,7 @@ def fn_score_postproc (output_logits, input_targets):
 
   return logits, targets
 
-def fn_run_epoch(model, collator, data, data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=True):
+def fn_run_epoch(model, collator, data, data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=True, threshold=0.5):
     epoch_loss, epoch_TP, epoch_FP, epoch_FN = 0, 0, 0, 0
 
     if train:
@@ -244,11 +258,12 @@ def fn_run_epoch(model, collator, data, data_rag, BATCH_SIZE, optimizer, DEVICE=
             total_pos = (targets == 1).sum().item()
             total_neg = (targets == 0).sum().item()
             pos_weight_value = total_neg / max(total_pos, 1)
+            print(f'pos weight value: {pos_weight_value}')
             criterion = torch.nn.BCEWithLogitsLoss(reduction="mean",pos_weight=torch.tensor([pos_weight_value], device=DEVICE))
             loss = criterion(logits, targets)
 
             # ===== Metrics =====
-            TP, FP, FN = binary_prf_counts(logits, targets, threshold=0.5)
+            TP, FP, FN = binary_prf_counts(logits, targets, threshold=threshold)
 
             # ===== Backprop (train only) =====
             if train:
@@ -322,8 +337,8 @@ best_val_loss = float('inf')
 for epoch in range(1, EPOCHS+1):
 
     start_time = time.perf_counter()
-    train_loss, train_precision, train_recall, train_f1 = fn_run_epoch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=True)
-    val_loss, val_precision, val_recall, val_f1         = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=False)
+    train_loss, train_precision, train_recall, train_f1 = fn_run_epoch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=True, threshold=0.8)
+    val_loss, val_precision, val_recall, val_f1         = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=False, threshold = 0.8)
     end_time = time.perf_counter()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
@@ -333,12 +348,29 @@ for epoch in range(1, EPOCHS+1):
 
     print(f'Epoch: {epoch:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
     print(f'Train Loss: {train_loss:.3f} | Train Precision: {train_precision:.3f} | Train Recall: {train_recall:.3f} | Train F1: {train_f1:.3f} | ')
-    print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {train_precision:.3f} | Val. Recall: {train_recall:.3f}  | Val. F1: {train_f1:.3f} | ')
+    print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {val_precision:.3f} | Val. Recall: {val_recall:.3f}  | Val. F1: {val_f1:.3f} | ')
 
 print(f"\nTraining complete. Best model weights saved to {save_path}")
 
+# Load saved model
 model.context_cross_attn.load_state_dict(torch.load(save_path))
 
-test_loss, test_acc = fn_eval_batch (model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, criterion)
+best_val_f1 = float('inf')
 
-print(f'Test Loss: {test_loss:.3f} | Test Acc: {test_acc*100:.2f}%')
+# Sweep threshold to see which is the best for f1 score
+for i in range(1,10):
+  start_thresh = 0.995
+  threshold = (start_thresh)+ (1-start_thresh)*i/10
+  print(f'Current threshold: {threshold}')
+  val_loss, val_precision, val_recall, val_f1 = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=False, threshold = threshold)
+  print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {val_precision:.3f} | Val. Recall: {val_recall:.3f}  | Val. F1: {val_f1:.3f} | ')
+
+  if val_f1 > best_val_f1:
+    best_threshold = threshold
+
+test_loss, test_precision, test_recall, test_f1 = fn_run_epoch(model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=False, threshold=threshold)
+
+print(f'Epoch: 1 | Epoch Time: {epoch_mins}m {epoch_secs}s')
+print(f'Test Loss: {test_loss:.3f} | Test Precision: {test_precision:.3f} | Test Recall: {test_recall:.3f} | Test F1: {test_f1:.3f} | ')
+
+starr

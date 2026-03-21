@@ -1,0 +1,258 @@
+<>:32: SyntaxWarning: invalid escape sequence '\V'
+<>:32: SyntaxWarning: invalid escape sequence '\V'
+/tmp/ipykernel_11555/1206902697.py:32: SyntaxWarning: invalid escape sequence '\V'
+  print(f'\Val. Loss: {val_loss:.3f}     | Val. Precision: {train_precision:.3f}  | Val. Recall: {train_recall:.3f}  | Val. F1: {train_f1:.3f} | ')
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 01 | Epoch Time: 3m 36s
+	Train Loss: 0.751 | Train Precision: 0.025 | Train Recall: 0.759 | Train F1: 0.048 | 
+\Val. Loss: 0.780     | Val. Precision: 0.025  | Val. Recall: 0.759  | Val. F1: 0.048 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 02 | Epoch Time: 3m 36s
+	Train Loss: 0.656 | Train Precision: 0.023 | Train Recall: 0.779 | Train F1: 0.045 | 
+\Val. Loss: 0.630     | Val. Precision: 0.023  | Val. Recall: 0.779  | Val. F1: 0.045 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 03 | Epoch Time: 3m 36s
+	Train Loss: 0.627 | Train Precision: 0.023 | Train Recall: 0.785 | Train F1: 0.045 | 
+\Val. Loss: 0.596     | Val. Precision: 0.023  | Val. Recall: 0.785  | Val. F1: 0.045 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 04 | Epoch Time: 3m 36s
+	Train Loss: 0.605 | Train Precision: 0.022 | Train Recall: 0.795 | Train F1: 0.044 | 
+\Val. Loss: 0.521     | Val. Precision: 0.022  | Val. Recall: 0.795  | Val. F1: 0.044 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 05 | Epoch Time: 3m 36s
+	Train Loss: 0.593 | Train Precision: 0.023 | Train Recall: 0.796 | Train F1: 0.044 | 
+\Val. Loss: 0.532     | Val. Precision: 0.023  | Val. Recall: 0.796  | Val. F1: 0.044 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 06 | Epoch Time: 3m 36s
+	Train Loss: 0.572 | Train Precision: 0.023 | Train Recall: 0.800 | Train F1: 0.044 | 
+\Val. Loss: 0.557     | Val. Precision: 0.023  | Val. Recall: 0.800  | Val. F1: 0.044 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 07 | Epoch Time: 3m 36s
+	Train Loss: 0.564 | Train Precision: 0.022 | Train Recall: 0.803 | Train F1: 0.044 | 
+\Val. Loss: 0.495     | Val. Precision: 0.022  | Val. Recall: 0.803  | Val. F1: 0.044 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 08 | Epoch Time: 3m 36s
+	Train Loss: 0.563 | Train Precision: 0.023 | Train Recall: 0.802 | Train F1: 0.044 | 
+\Val. Loss: 0.546     | Val. Precision: 0.023  | Val. Recall: 0.802  | Val. F1: 0.044 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 09 | Epoch Time: 3m 36s
+	Train Loss: 0.548 | Train Precision: 0.024 | Train Recall: 0.805 | Train F1: 0.046 | 
+\Val. Loss: 0.470     | Val. Precision: 0.024  | Val. Recall: 0.805  | Val. F1: 0.046 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 10 | Epoch Time: 3m 36s
+	Train Loss: 0.533 | Train Precision: 0.024 | Train Recall: 0.809 | Train F1: 0.046 | 
+\Val. Loss: 0.539     | Val. Precision: 0.024  | Val. Recall: 0.809  | Val. F1: 0.046 | 
+100%|██████████| 353/353 [02:46<00:00,  2.12it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 11 | Epoch Time: 3m 36s
+	Train Loss: 0.529 | Train Precision: 0.023 | Train Recall: 0.815 | Train F1: 0.044 | 
+\Val. Loss: 0.459     | Val. Precision: 0.023  | Val. Recall: 0.815  | Val. F1: 0.044 | 
+100%|██████████| 353/353 [02:46<00:00,  2.12it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 12 | Epoch Time: 3m 37s
+	Train Loss: 0.504 | Train Precision: 0.023 | Train Recall: 0.821 | Train F1: 0.045 | 
+\Val. Loss: 0.464     | Val. Precision: 0.023  | Val. Recall: 0.821  | Val. F1: 0.045 | 
+100%|██████████| 353/353 [02:46<00:00,  2.12it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 13 | Epoch Time: 3m 37s
+	Train Loss: 0.522 | Train Precision: 0.023 | Train Recall: 0.811 | Train F1: 0.045 | 
+\Val. Loss: 0.457     | Val. Precision: 0.023  | Val. Recall: 0.811  | Val. F1: 0.045 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 14 | Epoch Time: 3m 36s
+	Train Loss: 0.512 | Train Precision: 0.024 | Train Recall: 0.818 | Train F1: 0.046 | 
+\Val. Loss: 0.466     | Val. Precision: 0.024  | Val. Recall: 0.818  | Val. F1: 0.046 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 15 | Epoch Time: 3m 36s
+	Train Loss: 0.519 | Train Precision: 0.024 | Train Recall: 0.815 | Train F1: 0.046 | 
+\Val. Loss: 0.481     | Val. Precision: 0.024  | Val. Recall: 0.815  | Val. F1: 0.046 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 16 | Epoch Time: 3m 36s
+	Train Loss: 0.489 | Train Precision: 0.024 | Train Recall: 0.823 | Train F1: 0.046 | 
+\Val. Loss: 0.496     | Val. Precision: 0.024  | Val. Recall: 0.823  | Val. F1: 0.046 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 17 | Epoch Time: 3m 36s
+	Train Loss: 0.492 | Train Precision: 0.024 | Train Recall: 0.823 | Train F1: 0.047 | 
+\Val. Loss: 0.454     | Val. Precision: 0.024  | Val. Recall: 0.823  | Val. F1: 0.047 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 18 | Epoch Time: 3m 36s
+	Train Loss: 0.492 | Train Precision: 0.025 | Train Recall: 0.822 | Train F1: 0.048 | 
+\Val. Loss: 0.463     | Val. Precision: 0.025  | Val. Recall: 0.822  | Val. F1: 0.048 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 19 | Epoch Time: 3m 36s
+	Train Loss: 0.493 | Train Precision: 0.024 | Train Recall: 0.820 | Train F1: 0.046 | 
+\Val. Loss: 0.491     | Val. Precision: 0.024  | Val. Recall: 0.820  | Val. F1: 0.046 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 20 | Epoch Time: 3m 36s
+	Train Loss: 0.489 | Train Precision: 0.024 | Train Recall: 0.821 | Train F1: 0.047 | 
+\Val. Loss: 0.459     | Val. Precision: 0.024  | Val. Recall: 0.821  | Val. F1: 0.047 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 21 | Epoch Time: 3m 36s
+	Train Loss: 0.486 | Train Precision: 0.024 | Train Recall: 0.825 | Train F1: 0.047 | 
+\Val. Loss: 0.453     | Val. Precision: 0.024  | Val. Recall: 0.825  | Val. F1: 0.047 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 22 | Epoch Time: 3m 36s
+	Train Loss: 0.486 | Train Precision: 0.024 | Train Recall: 0.824 | Train F1: 0.046 | 
+\Val. Loss: 0.443     | Val. Precision: 0.024  | Val. Recall: 0.824  | Val. F1: 0.046 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 23 | Epoch Time: 3m 36s
+	Train Loss: 0.483 | Train Precision: 0.023 | Train Recall: 0.827 | Train F1: 0.046 | 
+\Val. Loss: 0.468     | Val. Precision: 0.023  | Val. Recall: 0.827  | Val. F1: 0.046 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 24 | Epoch Time: 3m 36s
+	Train Loss: 0.467 | Train Precision: 0.025 | Train Recall: 0.830 | Train F1: 0.048 | 
+\Val. Loss: 0.448     | Val. Precision: 0.025  | Val. Recall: 0.830  | Val. F1: 0.048 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 25 | Epoch Time: 3m 36s
+	Train Loss: 0.460 | Train Precision: 0.024 | Train Recall: 0.829 | Train F1: 0.047 | 
+\Val. Loss: 0.567     | Val. Precision: 0.024  | Val. Recall: 0.829  | Val. F1: 0.047 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 26 | Epoch Time: 3m 36s
+	Train Loss: 0.470 | Train Precision: 0.024 | Train Recall: 0.823 | Train F1: 0.047 | 
+\Val. Loss: 0.441     | Val. Precision: 0.024  | Val. Recall: 0.823  | Val. F1: 0.047 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 27 | Epoch Time: 3m 36s
+	Train Loss: 0.469 | Train Precision: 0.025 | Train Recall: 0.827 | Train F1: 0.049 | 
+\Val. Loss: 0.431     | Val. Precision: 0.025  | Val. Recall: 0.827  | Val. F1: 0.049 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 28 | Epoch Time: 3m 36s
+	Train Loss: 0.467 | Train Precision: 0.025 | Train Recall: 0.828 | Train F1: 0.048 | 
+\Val. Loss: 0.512     | Val. Precision: 0.025  | Val. Recall: 0.828  | Val. F1: 0.048 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 29 | Epoch Time: 3m 36s
+	Train Loss: 0.457 | Train Precision: 0.025 | Train Recall: 0.833 | Train F1: 0.048 | 
+\Val. Loss: 0.457     | Val. Precision: 0.025  | Val. Recall: 0.833  | Val. F1: 0.048 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 30 | Epoch Time: 3m 36s
+	Train Loss: 0.466 | Train Precision: 0.026 | Train Recall: 0.833 | Train F1: 0.050 | 
+\Val. Loss: 0.454     | Val. Precision: 0.026  | Val. Recall: 0.833  | Val. F1: 0.050 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 31 | Epoch Time: 3m 36s
+	Train Loss: 0.462 | Train Precision: 0.025 | Train Recall: 0.834 | Train F1: 0.049 | 
+\Val. Loss: 0.414     | Val. Precision: 0.025  | Val. Recall: 0.834  | Val. F1: 0.049 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 32 | Epoch Time: 3m 36s
+	Train Loss: 0.453 | Train Precision: 0.024 | Train Recall: 0.835 | Train F1: 0.048 | 
+\Val. Loss: 0.463     | Val. Precision: 0.024  | Val. Recall: 0.835  | Val. F1: 0.048 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 33 | Epoch Time: 3m 36s
+	Train Loss: 0.444 | Train Precision: 0.025 | Train Recall: 0.835 | Train F1: 0.049 | 
+\Val. Loss: 0.445     | Val. Precision: 0.025  | Val. Recall: 0.835  | Val. F1: 0.049 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 34 | Epoch Time: 3m 36s
+	Train Loss: 0.458 | Train Precision: 0.026 | Train Recall: 0.835 | Train F1: 0.050 | 
+\Val. Loss: 0.486     | Val. Precision: 0.026  | Val. Recall: 0.835  | Val. F1: 0.050 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 35 | Epoch Time: 3m 36s
+	Train Loss: 0.452 | Train Precision: 0.025 | Train Recall: 0.836 | Train F1: 0.049 | 
+\Val. Loss: 0.458     | Val. Precision: 0.025  | Val. Recall: 0.836  | Val. F1: 0.049 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 36 | Epoch Time: 3m 36s
+	Train Loss: 0.452 | Train Precision: 0.025 | Train Recall: 0.834 | Train F1: 0.049 | 
+\Val. Loss: 0.447     | Val. Precision: 0.025  | Val. Recall: 0.834  | Val. F1: 0.049 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 37 | Epoch Time: 3m 36s
+	Train Loss: 0.436 | Train Precision: 0.026 | Train Recall: 0.840 | Train F1: 0.050 | 
+\Val. Loss: 0.438     | Val. Precision: 0.026  | Val. Recall: 0.840  | Val. F1: 0.050 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 38 | Epoch Time: 3m 36s
+	Train Loss: 0.448 | Train Precision: 0.026 | Train Recall: 0.834 | Train F1: 0.051 | 
+\Val. Loss: 0.416     | Val. Precision: 0.026  | Val. Recall: 0.834  | Val. F1: 0.051 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 39 | Epoch Time: 3m 36s
+	Train Loss: 0.434 | Train Precision: 0.026 | Train Recall: 0.838 | Train F1: 0.051 | 
+\Val. Loss: 0.488     | Val. Precision: 0.026  | Val. Recall: 0.838  | Val. F1: 0.051 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 40 | Epoch Time: 3m 36s
+	Train Loss: 0.441 | Train Precision: 0.026 | Train Recall: 0.837 | Train F1: 0.051 | 
+\Val. Loss: 0.501     | Val. Precision: 0.026  | Val. Recall: 0.837  | Val. F1: 0.051 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 41 | Epoch Time: 3m 36s
+	Train Loss: 0.450 | Train Precision: 0.026 | Train Recall: 0.834 | Train F1: 0.051 | 
+\Val. Loss: 0.499     | Val. Precision: 0.026  | Val. Recall: 0.834  | Val. F1: 0.051 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 42 | Epoch Time: 3m 36s
+	Train Loss: 0.441 | Train Precision: 0.025 | Train Recall: 0.833 | Train F1: 0.049 | 
+\Val. Loss: 0.411     | Val. Precision: 0.025  | Val. Recall: 0.833  | Val. F1: 0.049 | 
+100%|██████████| 353/353 [02:46<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 43 | Epoch Time: 3m 36s
+	Train Loss: 0.434 | Train Precision: 0.026 | Train Recall: 0.838 | Train F1: 0.051 | 
+\Val. Loss: 0.480     | Val. Precision: 0.026  | Val. Recall: 0.838  | Val. F1: 0.051 | 
+100%|██████████| 353/353 [02:46<00:00,  2.12it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 44 | Epoch Time: 3m 36s
+	Train Loss: 0.432 | Train Precision: 0.027 | Train Recall: 0.840 | Train F1: 0.052 | 
+\Val. Loss: 0.433     | Val. Precision: 0.027  | Val. Recall: 0.840  | Val. F1: 0.052 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 45 | Epoch Time: 3m 36s
+	Train Loss: 0.436 | Train Precision: 0.026 | Train Recall: 0.840 | Train F1: 0.051 | 
+\Val. Loss: 0.450     | Val. Precision: 0.026  | Val. Recall: 0.840  | Val. F1: 0.051 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 46 | Epoch Time: 3m 36s
+	Train Loss: 0.426 | Train Precision: 0.026 | Train Recall: 0.839 | Train F1: 0.051 | 
+\Val. Loss: 0.434     | Val. Precision: 0.026  | Val. Recall: 0.839  | Val. F1: 0.051 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 47 | Epoch Time: 3m 36s
+	Train Loss: 0.419 | Train Precision: 0.028 | Train Recall: 0.845 | Train F1: 0.054 | 
+\Val. Loss: 0.503     | Val. Precision: 0.028  | Val. Recall: 0.845  | Val. F1: 0.054 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 48 | Epoch Time: 3m 36s
+	Train Loss: 0.426 | Train Precision: 0.027 | Train Recall: 0.844 | Train F1: 0.052 | 
+\Val. Loss: 0.440     | Val. Precision: 0.027  | Val. Recall: 0.844  | Val. F1: 0.052 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]
+Epoch: 49 | Epoch Time: 3m 36s
+	Train Loss: 0.428 | Train Precision: 0.027 | Train Recall: 0.842 | Train F1: 0.053 | 
+\Val. Loss: 0.438     | Val. Precision: 0.027  | Val. Recall: 0.842  | Val. F1: 0.053 | 
+100%|██████████| 353/353 [02:45<00:00,  2.13it/s]
+100%|██████████| 96/96 [00:50<00:00,  1.89it/s]Epoch: 50 | Epoch Time: 3m 36s
+	Train Loss: 0.422 | Train Precision: 0.028 | Train Recall: 0.840 | Train F1: 0.053 | 
+\Val. Loss: 0.418     | Val. Precision: 0.028  | Val. Recall: 0.840  | Val. F1: 0.053 | 
+
+Training complete. Best model weights saved to models/cross_attn_best.pt
+
+
+
