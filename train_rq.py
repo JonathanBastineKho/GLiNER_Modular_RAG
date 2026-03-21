@@ -7,30 +7,39 @@ Original file is located at
     https://colab.research.google.com/drive/1edoR97wHkjirzS6Gf9zGSFrBYK9oHXuH
 """
 
-from google.colab import drive
-drive.mount('/content/drive')
+# from google.colab import drive
+# drive.mount('/content/drive')
 
 # Copy repo to local runtime (fast SSD)
-#!cp -r /content/drive/MyDrive/Colab\ Notebooks/GLiNER_Modular_RAG /content/
+#!cp -r "/content/drive/MyDrive/Colab Notebooks/GLiNER_Modular_RAG" /content/
+
 
 # Commented out IPython magic to ensure Python compatibility.
-# %cd /content/GLiNER_Modular_RAG
-!pwd
+# %%bash
+# pwd
+# ls
+# cd /content/GLiNER_Modular_RAG
+# pwd
+# ls
+# 
+# pip install -r requirements.txt
+# pip install -e .
 
-!pip install -r requirements.txt
-!pip install -e .
+import os
 
+os.chdir("/content/GLiNER_Modular_RAG")
 import json, random, torch
 import time
 from pathlib import Path
 from src import RAGRetriever
 from src import GLiNERRagCrossAttn
+import tqdm
 
 PATH_TRAIN_DATA = Path("data/combined_dataset/train.jsonl")
 PATH_VAL_DATA = Path("data/combined_dataset/validation.jsonl")
 PATH_TEST_DATA = Path("data/combined_dataset/test.jsonl")
 PATH_TRAIN_DATA_RAG = Path('data/combined_dataset/train_w_rag.pkl')
-PATH_VAL_DATA_RAG = Path('data/combined_dataset/VAL_w_rag.pkl')
+PATH_VAL_DATA_RAG = Path('data/combined_dataset/val_w_rag.pkl')
 
 BATCH_SIZE, EPOCHS, MAX_SAMPLES = 32, 50, 8
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -150,11 +159,11 @@ val_data_rag = []
 val_data_rag = fn_rag_context(val_data, retriever, num_print=5)
 print("RAG retriever done.")
 
-with open(PATH_TRAIN_DATA_RAG, 'wb') as f:
-    pickle.dump(train_data_rag, f)
+# with open(PATH_TRAIN_DATA_RAG, 'wb') as f:
+#     pickle.dump(train_data_rag, f)
 
-with open(PATH_VAL_DATA_RAG, 'wb') as f:
-    pickle.dump(val_data_rag, f)
+# with open(PATH_VAL_DATA_RAG, 'wb') as f:
+#     pickle.dump(val_data_rag, f)
 
 import pickle
 with open(PATH_TRAIN_DATA_RAG, 'rb') as f:
@@ -172,8 +181,10 @@ def fn_train_batch(model, collator, train_data, train_data_rag, BATCH_SIZE, opti
     # Create a list of all indices and shuffle it once per epoch
     all_idxs = list(range(len(train_data)))
     random.shuffle(all_idxs)
-
-    for i in range(0, len(all_idxs), BATCH_SIZE):
+    nbatches = len(all_idxs)//BATCH_SIZE
+    if len(all_idxs) % BATCH_SIZE != 0:
+      nbatches += 1
+    for i in tqdm.trange(nbatches):
 
         # Prepare data
         idxs = all_idxs[i:i+BATCH_SIZE]
@@ -199,7 +210,7 @@ def fn_train_batch(model, collator, train_data, train_data_rag, BATCH_SIZE, opti
         epoch_loss += loss.item()
         epoch_acc += acc.item()
 
-    return epoch_loss / len(iterator), epoch_acc / len(iterator)
+    return epoch_loss /nbatches, epoch_acc / nbatches
 
 def fn_eval_batch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, criterion):
     epoch_loss = 0
@@ -209,12 +220,15 @@ def fn_eval_batch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer
 
     # don't have to shuffle every epoch
     all_idx = list(range(len(val_data)))
+    nbatches = len(all_idx)//BATCH_SIZE
+    if len(all_idx) % BATCH_SIZE != 0:
+      nbatches += 1
 
     with torch.no_grad():
-      for i in range(0, len(all_idxs), BATCH_SIZE):
+      for i in tqdm.trange(nbatches):
 
           # Prepare data
-          idxs = all_idxs[i:i+BATCH_SIZE]
+          idxs = all_idx[i:i+BATCH_SIZE]
           val_data_b = [val_data[i] for i in idxs]
           val_data_rag_b = [val_data_rag[i] for i in idxs]
           batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(model, collator, val_data_b, val_data_rag_b)
@@ -231,16 +245,15 @@ def fn_eval_batch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer
           epoch_loss += loss.item()
           epoch_acc += acc.item()
 
-    return epoch_loss / len(iterator), epoch_acc / len(iterator)
+    return epoch_loss / nbatches, epoch_acc / nbatches
 
-def fn_prep_batch(model, collator, train_data_b, train_data_rag_b):
+def fn_prepare_batch(model, collator, train_data_b, train_data_rag_b):
   label_b = [labels for _ in train_data_b]
   batch_inputs = to_dev(collator(train_data_b, label_b))
 
   # Use retrieved context for cross-attention.
-  batch_ctx_text = [train_data_rag_b[i] for i in idxs]
   batch_ctx = model.tokenizer(
-      batch_ctx_text, return_tensors="pt", padding=True, truncation=True, max_length=model.gliner.config.max_len
+      train_data_rag_b, return_tensors="pt", padding=True, truncation=True, max_length=model.gliner.config.max_len
   )
 
   batch_ctx_ids = batch_ctx["input_ids"].to(DEVICE)
@@ -272,7 +285,7 @@ collator = model.gliner.data_collator_class(
 
 import time
 
-criterion = torch.nn.BCEWithLogitsLoss()
+criterion = torch.nn.BCEWithLogitsLoss( reduction='sum')
 optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=1e-4)
 
 # --- 4. Epoch-Based Train & Validate Loop ---
@@ -285,10 +298,12 @@ best_val_loss = float('inf') # Track the best loss
 # Start training proper
 for epoch in range(1, EPOCHS+1):
 
-    start_time = time.time()
+    start_time = time.perf_counter()
 
     train_loss, train_acc = fn_train_batch (model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, criterion)
     val_loss, val_acc = fn_eval_batch (model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, criterion)
+    end_time = time.perf_counter()
+
 
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
@@ -298,7 +313,7 @@ for epoch in range(1, EPOCHS+1):
 
     print(f'Epoch: {epoch+1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
     print(f'\tTrain Loss: {train_loss:.3f} | Train Acc: {train_acc*100:.2f}%')
-    print(f'\t Val. Loss: {valid_loss:.3f} |  Val. Acc: {valid_acc*100:.2f}%')
+    print(f'\t Val. Loss: {val_loss:.3f} |  Val. Acc: {val_acc*100:.2f}%')
 
 print(f"\nTraining complete. Best model weights saved to {save_path}")
 
