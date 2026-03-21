@@ -41,7 +41,7 @@ PATH_TEST_DATA = Path("data/combined_dataset/test.jsonl")
 PATH_TRAIN_DATA_RAG = Path('data/combined_dataset/train_w_rag.pkl')
 PATH_VAL_DATA_RAG = Path('data/combined_dataset/val_w_rag.pkl')
 
-BATCH_SIZE, EPOCHS, MAX_SAMPLES = 32, 50, 8
+BATCH_SIZE, EPOCHS = 32, 50
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Only pass tensors to device, keep other batch items (like id_to_classes dict) on CPU for collator decoding.
@@ -229,7 +229,7 @@ def fn_train_batch(model, collator, train_data, train_data_rag, BATCH_SIZE, opti
         epoch_loss += loss.item()
         epoch_acc += 0
 
-    return epoch_loss /num_elements, epoch_acc / num_elements
+    return epoch_loss /nbatches, epoch_acc / nbatches
 
 def fn_eval_batch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, criterion):
     epoch_loss = 0
@@ -266,7 +266,7 @@ def fn_eval_batch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer
           epoch_loss += loss.item()
           epoch_acc += 0
 
-    return epoch_loss / num_elements, epoch_acc / num_elements
+    return epoch_loss / nbatches, epoch_acc / nbatches
 
 def fn_prepare_batch(model, collator, train_data_b, train_data_rag_b):
   label_b = [labels for _ in train_data_b]
@@ -327,7 +327,6 @@ for epoch in range(1, EPOCHS+1):
     train_loss, train_acc = fn_train_batch (model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, criterion)
     val_loss, val_acc = fn_eval_batch (model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, criterion)
     end_time = time.perf_counter()
-
 
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
