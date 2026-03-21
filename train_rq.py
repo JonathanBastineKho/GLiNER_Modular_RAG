@@ -7,12 +7,12 @@ Original file is located at
     https://colab.research.google.com/drive/1edoR97wHkjirzS6Gf9zGSFrBYK9oHXuH
 """
 
-# from google.colab import drive
-# drive.mount('/content/drive')
+from google.colab import drive
+drive.mount('/content/drive')
 
 # Copy repo to local runtime (fast SSD)
 #!cp -r "/content/drive/MyDrive/Colab Notebooks/GLiNER_Modular_RAG" /content/
-
+!pwd
 
 # Commented out IPython magic to ensure Python compatibility.
 # %%bash
@@ -172,6 +172,23 @@ with open(PATH_TRAIN_DATA_RAG, 'rb') as f:
 with open(PATH_VAL_DATA_RAG, 'rb') as f:
   val_contexts = pickle.load(f)
 
+def fn_score_postproc (output_logits, input_targets):
+
+  # 1. Reshape logits: [B, 56, 12, 13] → [B, 672, 13]
+  B, S, W, C = output_logits.shape
+  logits = output_logits.view(B, S * W, C)  # [B, 672, 13]
+
+  # 2. Targets already match flattened span layout
+  targets = input_targets["labels"].float()  # [B, 672, 13]
+
+  # 3. Apply span mask to remove invalid spans
+  span_mask = input_targets["span_mask"].unsqueeze(-1)  # [B, 672, 1]
+
+  logits = logits[span_mask.bool().expand_as(logits)] # model’s score: [B, 672, 1]
+  targets = targets[span_mask.bool().expand_as(targets)] # target: 0 or 1, [B, 672, 13]
+
+  return logits, targets
+
 def fn_train_batch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, criterion):
     epoch_loss = 0
     epoch_acc = 0
@@ -184,10 +201,10 @@ def fn_train_batch(model, collator, train_data, train_data_rag, BATCH_SIZE, opti
     nbatches = len(all_idxs)//BATCH_SIZE
     if len(all_idxs) % BATCH_SIZE != 0:
       nbatches += 1
-    for i in tqdm.trange(nbatches):
 
+    for i in tqdm.trange(nbatches):
         # Prepare data
-        idxs = all_idxs[i:i+BATCH_SIZE]
+        idxs = all_idxs[i * BATCH_SIZE : (i + 1) * BATCH_SIZE]
         train_data_b = [train_data[i] for i in idxs]
         train_data_rag_b = [train_data_rag[i] for i in idxs]
         batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(model, collator, train_data_b, train_data_rag_b)
@@ -196,21 +213,23 @@ def fn_train_batch(model, collator, train_data, train_data_rag, BATCH_SIZE, opti
         optimizer.zero_grad()
 
         # Send to model for training
-        prediction_logits = model(batch_ctx_ids, batch_ctx_mask,**batch_inputs)
+        logit_outputs = model(batch_ctx_ids, batch_ctx_mask,**batch_inputs)
 
-        # Calculate accuracy & loss
-        target = batch_inputs["labels"].float()
-        prediction_logits, target = align_for_bce(prediction_logits, target)
-        loss = criterion(prediction_logits, target)
-        acc = binary_accuracy(prediction_logits, target)
+        # Reformatting the scores to get correct format to calculate loss
+        logits, targets = fn_score_postproc(output_logits=logit_outputs, input_targets=batch_inputs)
+        num_elements = targets.numel()
+
+        # Compute BCE loss only on valid spans
+        loss = criterion(logits, targets)
+        acc = binary_accuracy(logits, targets)
 
         loss.backward()
         optimizer.step()
 
         epoch_loss += loss.item()
-        epoch_acc += acc.item()
+        epoch_acc += 0
 
-    return epoch_loss /nbatches, epoch_acc / nbatches
+    return epoch_loss /num_elements, epoch_acc / num_elements
 
 def fn_eval_batch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, criterion):
     epoch_loss = 0
@@ -219,33 +238,35 @@ def fn_eval_batch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer
     model.eval()
 
     # don't have to shuffle every epoch
-    all_idx = list(range(len(val_data)))
-    nbatches = len(all_idx)//BATCH_SIZE
-    if len(all_idx) % BATCH_SIZE != 0:
+    all_idxs = list(range(len(val_data)))
+    nbatches = len(all_idxs)//BATCH_SIZE
+    if len(all_idxs) % BATCH_SIZE != 0:
       nbatches += 1
 
     with torch.no_grad():
       for i in tqdm.trange(nbatches):
 
           # Prepare data
-          idxs = all_idx[i:i+BATCH_SIZE]
+          idxs = all_idxs[i * BATCH_SIZE : (i + 1) * BATCH_SIZE]
           val_data_b = [val_data[i] for i in idxs]
           val_data_rag_b = [val_data_rag[i] for i in idxs]
           batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(model, collator, val_data_b, val_data_rag_b)
 
           # Send to model for training
-          prediction_logits = model(batch_ctx_ids, batch_ctx_mask,**batch_inputs)
+          logit_outputs = model(batch_ctx_ids, batch_ctx_mask,**batch_inputs)
 
-          # Calculate accuracy & loss
-          target = batch_inputs["labels"].float()
-          prediction_logits, target = align_for_bce(prediction_logits, target)
-          loss = criterion(prediction_logits, target)
-          acc = binary_accuracy(prediction_logits, target)
+          # Reformatting the scores to get correct format to calculate loss
+          logits, targets = fn_score_postproc (output_logits=logit_outputs, input_targets=batch_inputs)
+          num_elements = targets.numel()
+
+          # Compute BCE loss only on valid spans
+          loss = criterion(logits, targets)
+          acc = binary_accuracy(logits, targets)
 
           epoch_loss += loss.item()
-          epoch_acc += acc.item()
+          epoch_acc += 0
 
-    return epoch_loss / nbatches, epoch_acc / nbatches
+    return epoch_loss / num_elements, epoch_acc / num_elements
 
 def fn_prepare_batch(model, collator, train_data_b, train_data_rag_b):
   label_b = [labels for _ in train_data_b]
@@ -268,6 +289,9 @@ def fn_prepare_batch(model, collator, train_data_b, train_data_rag_b):
   assert batch_inputs["input_ids"].shape == batch_inputs["attention_mask"].shape
   assert batch_ctx_ids.shape == batch_ctx_mask.shape
 
+  #print(type(batch_inputs))
+  #print(batch_inputs.keys())
+
   return batch_inputs, batch_ctx_ids, batch_ctx_mask
 
 # Load GLiNER
@@ -285,7 +309,7 @@ collator = model.gliner.data_collator_class(
 
 import time
 
-criterion = torch.nn.BCEWithLogitsLoss( reduction='sum')
+criterion = torch.nn.BCEWithLogitsLoss( reduction='mean')
 optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=1e-4)
 
 # --- 4. Epoch-Based Train & Validate Loop ---
