@@ -194,13 +194,13 @@ print("RAG retriever done for train/val/test data.")
 
 import pickle
 with open(PATH_TRAIN_DATA_RAG, 'rb') as f:
-  train_contexts = pickle.load(f)
+  train_data_rag = pickle.load(f)
 
 with open(PATH_VAL_DATA_RAG, 'rb') as f:
-  val_contexts = pickle.load(f)
+  val_data_rag = pickle.load(f)
 
 with open(PATH_TEST_DATA_RAG, 'rb') as f:
-  val_contexts = pickle.load(f)
+  test_data_rag = pickle.load(f)
 
 def fn_score_postproc (output_logits, input_targets):
 
@@ -285,6 +285,80 @@ def fn_run_epoch(model, collator, data, data_rag, BATCH_SIZE, optimizer, DEVICE=
 
     return epoch_loss, precision, recall, f1
 
+def fn_infer(model, collator, data, data_rag, BATCH_SIZE, DEVICE="cuda", threshold=0.5, num_samples = 2):
+
+    model.eval()
+    all_idxs = list(range(len(data)))
+    printed = 0
+
+    with torch.no_grad():
+        for i in range(len(all_idxs)):
+
+            idx = all_idxs[i]
+
+            data_b = [data[idx]]
+            data_rag_b = [data_rag[idx]]
+
+            # ===== Prepare batch =====
+            batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(
+                model, collator, data_b, data_rag_b
+            )
+
+            # ===== Forward =====
+            logit_outputs = model(batch_ctx_ids, batch_ctx_mask, **batch_inputs)
+
+            # ===== SAME postproc as training =====
+            logits, targets = fn_score_postproc(
+                output_logits=logit_outputs,
+                input_targets=batch_inputs
+            )
+
+            probs = torch.sigmoid(logits)  # [N, C]
+
+            # ===== Get span info =====
+            span_idx = batch_inputs["span_idx"][0]
+            span_mask = batch_inputs["span_mask"][0]
+            tokens = batch_inputs["tokens"][0]
+            id_to_classes = batch_inputs["id_to_classes"][0]
+
+            # ===== Apply mask =====
+            valid_mask = span_mask.bool()
+            span_idx = span_idx[valid_mask]
+
+            # ===== Threshold =====
+            preds = (probs > threshold)
+
+            # ===== Extract entities =====
+            predicted_entities = []
+
+            for i_span in range(preds.shape[0]):
+                for c in range(preds.shape[1]):
+                    if preds[i_span, c]:
+                        start, end = span_idx[i_span].tolist()
+                        span_text = " ".join(tokens[start:end])
+                        label = id_to_classes[c]
+
+                        predicted_entities.append(
+                            (span_text, label, probs[i_span, c].item())
+                        )
+
+            # ===== Print =====
+            print("="*60)
+            print("TEXT:")
+            print(data[idx]["text"])
+
+            print("\nGROUND TRUTH:")
+            for ent in data[idx].get("entities", []):
+                print(ent)
+
+            print("\nPREDICTIONS:")
+            for ent in predicted_entities:
+                print(ent)
+
+            printed += 1
+            if printed >= num_samples:
+                break
+
 def fn_prepare_batch(model, collator, train_data_b, train_data_rag_b):
   label_b = [labels for _ in train_data_b]
   batch_inputs = to_dev(collator(train_data_b, label_b))
@@ -332,25 +406,32 @@ save_dir.mkdir(exist_ok=True)
 save_path = save_dir/"cross_attn_best.pt"
 
 best_val_loss = float('inf')
+threshold = 0.8
+
 
 # Start training proper
 for epoch in range(1, EPOCHS+1):
 
     start_time = time.perf_counter()
-    train_loss, train_precision, train_recall, train_f1 = fn_run_epoch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=True, threshold=0.8)
-    val_loss, val_precision, val_recall, val_f1         = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=False, threshold = 0.8)
+    train_loss, train_precision, train_recall, train_f1 = fn_run_epoch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=True, threshold)
+    val_loss, val_precision, val_recall, val_f1         = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=False, threshold)
     end_time = time.perf_counter()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     if val_loss < best_val_loss:
         best_val_loss = val_loss
-        torch.save(model.context_cross_attn.state_dict(), save_path)
+        #torch.save(model.context_cross_attn.state_dict(), save_path)
 
     print(f'Epoch: {epoch:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
     print(f'Train Loss: {train_loss:.3f} | Train Precision: {train_precision:.3f} | Train Recall: {train_recall:.3f} | Train F1: {train_f1:.3f} | ')
     print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {val_precision:.3f} | Val. Recall: {val_recall:.3f}  | Val. F1: {val_f1:.3f} | ')
 
 print(f"\nTraining complete. Best model weights saved to {save_path}")
+
+# Run inference on saved model
+model.context_cross_attn.load_state_dict(torch.load(save_path))
+
+fn_infer(model, collator, test_data, test_data_rag, BATCH_SIZE, DEVICE="cuda", threshold=0.5, num_samples = 2)
 
 # Load saved model
 model.context_cross_attn.load_state_dict(torch.load(save_path))
@@ -362,7 +443,7 @@ for i in range(1,10):
   start_thresh = 0.995
   threshold = (start_thresh)+ (1-start_thresh)*i/10
   print(f'Current threshold: {threshold}')
-  val_loss, val_precision, val_recall, val_f1 = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=False, threshold = threshold)
+  val_loss, val_precision, val_recall, val_f1 = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="cuda",train=False, threshold=threshold)
   print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {val_precision:.3f} | Val. Recall: {val_recall:.3f}  | Val. F1: {val_f1:.3f} | ')
 
   if val_f1 > best_val_f1:
