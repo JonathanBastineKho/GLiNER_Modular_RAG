@@ -1,14 +1,13 @@
-# -*- coding: utf-8 -*-
 
 
 import os
+
 import json, random, torch
 import time
 from pathlib import Path
 from src import RAGRetriever
 from src import GLiNERRagCrossAttn
 import tqdm
-
 
 PATH_TRAIN_DATA = Path("data/combined_dataset/train.jsonl")
 PATH_VAL_DATA = Path("data/combined_dataset/validation.jsonl")
@@ -70,13 +69,7 @@ def load_dataset(filepath, max_samples=None):
             if not line.strip(): continue
             sample = json.loads(line)
             if "ner" in sample:
-                # Ensure 'text' key is present, either from original or reconstructed
-                if "text" not in sample and "tokens" in sample:
-                    sample["text"] = " ".join(sample["tokens"])
-                elif "text" not in sample and "tokenized_text" in sample: # Fallback if 'tokens' already renamed
-                    sample["text"] = " ".join(sample["tokenized_text"])
-
-                sample["tokenized_text"] = sample.pop("tokens") # Rename 'tokens' to 'tokenized_text'
+                sample["tokenized_text"] = sample.pop("tokens")
                 dataset.append(sample)
     if max_samples:
         dataset = dataset[:max_samples]
@@ -95,6 +88,14 @@ def fn_rag_context (data, retriever, num_print=5):
             print(f"{i}. {retrieved_context}")
             print("-" * 50)
     return contexts
+
+def fn_aggre_labels (data):
+  label_set = set()
+  for sample in data:
+    for span in sample["ner"]:
+        label_set.add(span[2])
+  labels = sorted(label_set)
+  return labels
 
 def binary_accuracy(preds, y):
   """
@@ -133,9 +134,8 @@ print(f'Number of validation examples: {len(val_data)}')
 print(f'Number of testing examples: {len(test_data)}')
 
 # To create a global label set for the taining run
-# TPL: THIS IS A BIG WRONG WRONG. WE should not be aggregating labels. Every example has its own set of entity types (labels).
-# labels = fn_aggre_labels(train_data)
-# print(f"Target labels: {labels}")
+labels = fn_aggre_labels(train_data)
+print(f"Target labels: {labels}")
 
 # This cell is to be run once only! After rag-retrieval is done, it is saved to the .pkl script
 # Subsequently, we just need to open the .pkl script to to see what has been retrieved by the rag, rather than running the rag every single launch of the script
@@ -146,9 +146,31 @@ print(f'Number of testing examples: {len(test_data)}')
 retriever = RAGRetriever(k=3)
 print("RAG retriever enabled.")
 
+import pickle
+# train_data_rag = []
+# train_data_rag = fn_rag_context(train_data, retriever, num_print=5)
+
+#train_data_rag = []
+#train_data_rag = fn_rag_context(train_data, retriever, num_print=5)
+# val_data_rag = []
+# val_data_rag = fn_rag_context(val_data, retriever, num_print=5)
+
+#val_data_rag = []
+#val_data_rag = fn_rag_context(val_data, retriever, num_print=5)
+print("RAG retriever done.")
+# test_data_rag = []
+# test_data_rag = fn_rag_context(test_data, retriever, num_print=5)
 
 print("RAG retriever done for train/val/test data.")
 
+# with open(PATH_TRAIN_DATA_RAG, 'wb') as f:
+#     pickle.dump(train_data_rag, f)
+
+# with open(PATH_VAL_DATA_RAG, 'wb') as f:
+#     pickle.dump(val_data_rag, f)
+
+# with open(PATH_TEST_DATA_RAG, 'wb') as f:
+#     pickle.dump(test_data_rag, f)
 
 import pickle
 with open(PATH_TRAIN_DATA_RAG, 'rb') as f:
@@ -160,14 +182,13 @@ with open(PATH_VAL_DATA_RAG, 'rb') as f:
 with open(PATH_TEST_DATA_RAG, 'rb') as f:
   test_data_rag = pickle.load(f)
 
-def fn_score_postproc(output_logits, input_targets):
+def fn_score_postproc (output_logits, input_targets):
 
   # 1. Reshape logits: [BATCH_SIZE, START_POS, WIDTH_SPAN, CLASS]: [B, 56, 12, 13] → [B, 672, 13]
   B, S, W, C = output_logits.shape
   logits = output_logits.view(B, S * W, C)  # [B, 672, 13]
 
   # 2. Targets already match flattened span layout
-  # TPL: THIS IS A BIG WRONG WRONG
   targets = input_targets["labels"].float()  # [B, 672, 13]
 
   # 3. Apply span mask to every batch to remove invalid spans and hence invalid scores
@@ -177,7 +198,8 @@ def fn_score_postproc(output_logits, input_targets):
 
   return logits, targets
 
-def fn_run_epoch(model: GLiNERRagCrossAttn, collator, data, data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=True, threshold=0.5):
+
+def fn_run_epoch(model, collator, data, data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=True, threshold=0.5):
     epoch_loss, epoch_TP, epoch_FP, epoch_FN = 0, 0, 0, 0
 
     if train:
@@ -186,8 +208,8 @@ def fn_run_epoch(model: GLiNERRagCrossAttn, collator, data, data_rag, BATCH_SIZE
         model.eval()
 
     all_idxs = list(range(len(data)))
-    # if train:
-    #     random.shuffle(all_idxs)
+    if train:
+        random.shuffle(all_idxs)
 
     nbatches = len(all_idxs) // BATCH_SIZE
     if len(all_idxs) % BATCH_SIZE != 0:
@@ -204,29 +226,26 @@ def fn_run_epoch(model: GLiNERRagCrossAttn, collator, data, data_rag, BATCH_SIZE
             data_b = [data[j] for j in idxs]
             data_rag_b = [data_rag[j] for j in idxs]
 
-            batch_inputs, batch_ctx_ids, batch_ctx_mask, span_target_label = fn_prepare_batch(model, collator, data_b, data_rag_b)
-
-            # span_target_label = batch_inputs["labels"].float()  # [B, 672, 13]
+            batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(model, collator, data_b, data_rag_b)
 
             if train:
                 optimizer.zero_grad()
 
             # ===== Forward =====
             logit_outputs = model(batch_ctx_ids, batch_ctx_mask, **batch_inputs)
-            B, S, W, C = logit_outputs.shape
-            reshaped_logits_output = logit_outputs.view(B, S * W, C)  # [B, 672, 13]
-            # logits, targets = fn_score_postproc(output_logits=logit_outputs,input_targets=batch_inputs)
+            logits, targets = fn_score_postproc(output_logits=logit_outputs,input_targets=batch_inputs)
 
             # ===== Compute pos_weightage =====
-            total_pos = (span_target_label == 1).sum().item()
-            total_neg = (span_target_label == 0).sum().item()
+            total_pos = (targets == 1).sum().item()
+            total_neg = (targets == 0).sum().item()
             pos_weight_value = total_neg / max(total_pos, 1)
             print(f'pos weight value: {pos_weight_value}')
             criterion = torch.nn.BCEWithLogitsLoss(reduction="mean",pos_weight=torch.tensor([pos_weight_value], device=DEVICE))
-            loss = criterion(reshaped_logits_output, span_target_label)
+            loss = criterion(logits, targets)
 
             # ===== Metrics =====
-            TP, FP, FN = binary_prf_counts(reshaped_logits_output, span_target_label, threshold=threshold)
+            TP, FP, FN = binary_prf_counts(logits, targets, threshold=0.5)
+            TP, FP, FN = binary_prf_counts(logits, targets, threshold=threshold)
 
             # ===== Backprop (train only) =====
             if train:
@@ -248,63 +267,28 @@ def fn_run_epoch(model: GLiNERRagCrossAttn, collator, data, data_rag, BATCH_SIZE
 
     return epoch_loss, precision, recall, f1
 
+def fn_prepare_batch(model, collator, train_data_b, train_data_rag_b):
+  label_b = [labels for _ in train_data_b]
+  batch_inputs = to_dev(collator(train_data_b, label_b))
 
-def fn_prepare_batch(model: GLiNERRagCrossAttn, collator, train_data_b, train_data_rag_b):
-    """
-    Prepare the input batch for the model, including tokenization, collating, and RAG context processing.
-    as well as the output labels for backprop.
-    """
-    label_b = [[et[2] for et in x['ner']] for x in train_data_b]  # THIS IS MOST LIKELY WRONG
-    print("label_b:", label_b)
-    batch_inputs = to_dev(collator(train_data_b, label_b))
+  # Use retrieved context for cross-attention.
+  batch_ctx = model.tokenizer(
+      train_data_rag_b, return_tensors="pt", padding=True, truncation=True, max_length=model.gliner.config.max_len
+  )
 
+  batch_ctx_ids = batch_ctx["input_ids"].to(DEVICE)
+  batch_ctx_mask = batch_ctx["attention_mask"].to(DEVICE).long()
 
-    # Use retrieved context for cross-attention.
-    batch_ctx = model.tokenizer(
-        train_data_rag_b, return_tensors="pt", padding=True, truncation=True, max_length=model.gliner.config.max_len
-    )
+  if batch_ctx_ids.dim() == 1:
+      batch_ctx_ids = batch_ctx_ids.unsqueeze(0)
+  if batch_ctx_mask.dim() == 1:
+      batch_ctx_mask = batch_ctx_mask.unsqueeze(0)
 
-    batch_ctx_ids = batch_ctx["input_ids"].to(DEVICE)
-    batch_ctx_mask = batch_ctx["attention_mask"].to(DEVICE).long()
+  batch_inputs["attention_mask"] = batch_inputs["attention_mask"].long()
+  assert batch_inputs["input_ids"].shape == batch_inputs["attention_mask"].shape
+  assert batch_ctx_ids.shape == batch_ctx_mask.shape
 
-    if batch_ctx_ids.dim() == 1:
-        batch_ctx_ids = batch_ctx_ids.unsqueeze(0)
-    if batch_ctx_mask.dim() == 1:
-        batch_ctx_mask = batch_ctx_mask.unsqueeze(0)
-
-    batch_inputs["attention_mask"] = batch_inputs["attention_mask"].long()
-    assert batch_inputs["input_ids"].shape == batch_inputs["attention_mask"].shape
-    print(f"Batch input", batch_inputs.keys())
-    # print("batch_inputs[labels]", batch_inputs["labels"], batch_inputs["labels"].shape)   # 32, 864, 3
-    assert batch_ctx_ids.shape == batch_ctx_mask.shape
-
-
-    # prepare output for backprop
-    # TPL: FOR NOW I BELIEVE THAT ENTITY TYPES ARE MEANT TO BE PLACED IN THE 'ner' FIELD OF train_data_b, 
-    # and that entity_types is optional and JoJo is wrong to use it. 
-
-    raw_batch = model.gliner.data_processor.collate_raw_batch(train_data_b)
-
-    print("raw_batch from collator:")
-    print("raw_batch keys:", raw_batch.keys())
-    print("raw_batch['span_label']:", raw_batch['span_label'])
-    print("raw_batch['span_label'].shape:", raw_batch['span_label'].shape)
-    # print(raw_batch['seq_length'])
-    # print(raw_batch['span_idx'])
-    # print("raw_batch['tokens']:", raw_batch['tokens'])
-    # print("raw_batch['entities']:", raw_batch['entities'])
-    # print("raw_batch['classes_to_id']:", raw_batch['classes_to_id'])
-    # print(raw_batch['id_to_classes'])
-
-
-    raw_batch2 = {"tokens": raw_batch["tokens"], "entities": raw_batch["entities"], "classes_to_id": raw_batch["classes_to_id"]}
-    # print(type(model.gliner.data_processor))
-    span_labels = model.gliner.data_processor.create_labels(raw_batch2)
-
-    # print("span_labels", span_labels)
-    print("span_labels.shape", span_labels.shape)  # 32, 864, 5
-
-    return batch_inputs, batch_ctx_ids, batch_ctx_mask, span_labels
+  return batch_inputs, batch_ctx_ids, batch_ctx_mask
 
 # Load GLiNER
 model = GLiNERRagCrossAttn("urchade/gliner_large-v1").to(DEVICE)
@@ -315,11 +299,9 @@ assert not any(p.requires_grad for p in model.gliner.parameters())
 # Instatiating collator as the object of the class, data_collator_class
 # Set prepare_labels=True for training so the collator builds label tensors
 # while assembling sample dicts into a model-ready batch.
-# collator = model.gliner.data_collator_class(
-#     model.gliner.config, data_processor=model.gliner.data_processor, prepare_labels=True, return_tokens=True,
-#             return_id_to_classes=True)
-
-collator = model.collator
+collator = model.gliner.data_collator_class(
+    model.gliner.config, data_processor=model.gliner.data_processor, prepare_labels=True
+)
 
 import time
 
@@ -329,39 +311,35 @@ optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=2e-4)
 # --- 4. Epoch-Based Train & Validate Loop ---
 save_dir = Path("models")
 save_dir.mkdir(exist_ok=True)
-#save_path = save_dir/"cross_attn_best.pt"
+save_path = save_dir/"cross_attn_best.pt"
 
 best_val_loss = float('inf')
-threshold = 0.8
-
 
 # Start training proper
 for epoch in range(1, EPOCHS+1):
 
     start_time = time.perf_counter()
-    train_loss, train_precision, train_recall, train_f1 = fn_run_epoch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=True, threshold=threshold)
-    val_loss, val_precision, val_recall, val_f1         = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=False, threshold=threshold)
+    train_loss, train_precision, train_recall, train_f1 = fn_run_epoch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=True)
+    val_loss, val_precision, val_recall, val_f1         = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=False)
+    
     end_time = time.perf_counter()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     if val_loss < best_val_loss:
         best_val_loss = val_loss
-        #torch.save(model.context_cross_attn.state_dict(), save_path)
+        torch.save(model.context_cross_attn.state_dict(), save_path)
 
     print(f'Epoch: {epoch:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
     print(f'Train Loss: {train_loss:.3f} | Train Precision: {train_precision:.3f} | Train Recall: {train_recall:.3f} | Train F1: {train_f1:.3f} | ')
+    print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {train_precision:.3f} | Val. Recall: {train_recall:.3f}  | Val. F1: {train_f1:.3f} | ')
     print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {val_precision:.3f} | Val. Recall: {val_recall:.3f}  | Val. F1: {val_f1:.3f} | ')
 
 print(f"\nTraining complete. Best model weights saved to {save_path}")
 
-
 # Load saved model
-# --- 4. Epoch-Based Train & Validate Loop ---
-# save_dir = Path("src/models")
-# save_dir.mkdir(exist_ok=True)
-# save_path = save_dir/"cross_attn_best.pt"
 model.context_cross_attn.load_state_dict(torch.load(save_path))
 
+test_loss, test_acc = fn_eval_batch (model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, criterion)
 best_val_f1 = float('inf')
 
 # Sweep threshold to see which is the best for f1 score
@@ -369,14 +347,15 @@ for i in range(1,10):
   start_thresh = 0.995
   threshold = (start_thresh)+ (1-start_thresh)*i/10
   print(f'Current threshold: {threshold}')
-  val_loss, val_precision, val_recall, val_f1 = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=False, threshold=threshold)
+  val_loss, val_precision, val_recall, val_f1 = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="DEVICE",train=False, threshold = threshold)
   print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {val_precision:.3f} | Val. Recall: {val_recall:.3f}  | Val. F1: {val_f1:.3f} | ')
 
   if val_f1 > best_val_f1:
     best_threshold = threshold
 
-test_loss, test_precision, test_recall, test_f1 = fn_run_epoch(model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=False, threshold=threshold)
+test_loss, test_precision, test_recall, test_f1 = fn_run_epoch(model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, DEVICE="DEVICE",train=False, threshold=threshold)
 
 print(f'Epoch: 1 | Epoch Time: {epoch_mins}m {epoch_secs}s')
 print(f'Test Loss: {test_loss:.3f} | Test Precision: {test_precision:.3f} | Test Recall: {test_recall:.3f} | Test F1: {test_f1:.3f} | ')
 
+print(f'Test Loss: {test_loss:.3f} | Test Acc: {test_acc*100:.2f}%')
