@@ -7,6 +7,7 @@ from pathlib import Path
 from src import RAGRetriever
 from src import GLiNERRagCrossAttn
 import tqdm
+from pprint import pprint
 
 PATH_TRAIN_DATA = Path("data/combined_dataset/train.jsonl")
 PATH_VAL_DATA = Path("data/combined_dataset/validation.jsonl")
@@ -202,7 +203,10 @@ def fn_infer(model: GLiNERRagCrossAttn, collator, data, data_rag, BATCH_SIZE, DE
             # print("type(data_rag_b):", type(data_rag_b))
             true_answer = data_b["ner"]
             output = model.predict_entities(text=data_b["text"], labels=labels, context=data_rag_b, threshold=threshold, flat_ner=True)
-            print(output)
+            print(f'input text: {data_b["text"]}')
+            print(f"Sample {i} - True Answer: {true_answer}")
+            print(f"Sample {i} - Predicted Answer")
+            pprint(output, indent=2, width=40)
             input("Press Enter to continue...")
 
 

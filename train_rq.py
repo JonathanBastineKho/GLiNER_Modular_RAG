@@ -9,6 +9,7 @@ from src import RAGRetriever
 from src import GLiNERRagCrossAttn
 import tqdm
 
+
 PATH_TRAIN_DATA = Path("data/combined_dataset/train.jsonl")
 PATH_VAL_DATA = Path("data/combined_dataset/validation.jsonl")
 PATH_TEST_DATA = Path("data/combined_dataset/test.jsonl")
