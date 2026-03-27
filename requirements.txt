@@ -7,3 +7,7 @@ sentence-transformers
 openai>=2.26.0
 requests>=2.32.0
 datasets>=3.2.0
+rank_bm25
+spacy>=3.7.0,<3.8.0
+scispacy==0.6.2
+https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_sci_sm-0.5.4.tar.gz
