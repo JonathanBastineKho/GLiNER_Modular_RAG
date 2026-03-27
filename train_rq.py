@@ -1,5 +1,3 @@
-
-
 import os
 
 import json, random, torch
@@ -8,6 +6,8 @@ from pathlib import Path
 from src import RAGRetriever
 from src import GLiNERRagCrossAttn
 import tqdm
+import pickle
+import time
 
 PATH_TRAIN_DATA = Path("data/combined_dataset/train.jsonl")
 PATH_VAL_DATA = Path("data/combined_dataset/validation.jsonl")
@@ -16,7 +16,8 @@ PATH_TRAIN_DATA_RAG = Path('data/combined_dataset/train_w_rag.pkl')
 PATH_VAL_DATA_RAG = Path('data/combined_dataset/val_w_rag.pkl')
 PATH_TEST_DATA_RAG = Path('data/combined_dataset/test_w_rag.pkl')
 
-BATCH_SIZE, EPOCHS = 32, 50
+BATCH_SIZE, EPOCHS = 64, 30
+WARMUP_EPOCHS = 2
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Only pass tensors to device, keep other batch items (like id_to_classes dict) on CPU for collator decoding.
@@ -53,10 +54,6 @@ def align_for_bce(logits: torch.Tensor, target: torch.Tensor):
     )
 
 # Prepare data for training
-# raw = [json.loads(x) for x in DATA_PATH.open(encoding="utf-8") if x.strip()][:MAX_SAMPLES]
-# data = [to_sample(x) for x in raw]
-# # Clean up data by checking if it has at least one entity annotation, else skip sample.
-# data = [x for x in data if x["ner"]]
 def load_dataset(filepath, max_samples=None):
     """Helper function to load and format JSONL data."""
     dataset = []
@@ -145,7 +142,6 @@ print(f"Target global_labels: {global_labels}")
 # retriever = RAGRetriever(k=3)
 print("RAG retriever enabled.")
 
-import pickle
 # train_data_rag = []
 # train_data_rag = fn_rag_context(train_data, retriever, num_print=5)
 
@@ -171,7 +167,6 @@ print("RAG retriever done for train/val/test data.")
 # with open(PATH_TEST_DATA_RAG, 'wb') as f:
 #     pickle.dump(test_data_rag, f)
 
-import pickle
 with open(PATH_TRAIN_DATA_RAG, 'rb') as f:
   train_data_rag = pickle.load(f)
 
@@ -223,10 +218,40 @@ def fn_score_postproc (output_logits, input_targets):
 
   return logits, targets
 
+def fn_prepare_batch(model, collator, data_b, data_rag_b, train=True):
+  # No Aggregate global labels since negative samples not working for the dataset now
+  label_b = [list(set([et[2] for et in x.get('ner', [])])) for x in data_b]
+            
+  batch_inputs = to_dev(collator(data_b, label_b))
 
-def fn_run_epoch(model, collator, data, data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=True, threshold=0.5):
+  # Use retrieved context for cross-attention.
+  batch_ctx = model.tokenizer(
+      data_rag_b, return_tensors="pt", padding=True, truncation=True, max_length=model.gliner.config.max_len
+  )
+
+  batch_ctx_ids = batch_ctx["input_ids"].to(DEVICE)
+  batch_ctx_mask = batch_ctx["attention_mask"].to(DEVICE).long()
+
+  if batch_ctx_ids.dim() == 1:
+      batch_ctx_ids = batch_ctx_ids.unsqueeze(0)
+  if batch_ctx_mask.dim() == 1:
+      batch_ctx_mask = batch_ctx_mask.unsqueeze(0)
+
+  batch_inputs["attention_mask"] = batch_inputs["attention_mask"].long()
+  assert batch_inputs["input_ids"].shape == batch_inputs["attention_mask"].shape
+  assert batch_ctx_ids.shape == batch_ctx_mask.shape
+
+  return batch_inputs, batch_ctx_ids, batch_ctx_mask
+
+def fn_run_epoch(model, collator, data, data_rag, BATCH_SIZE, optimizer, criterion, DEVICE=DEVICE,train=True, threshold=0.5, return_preds=False):
     epoch_loss, epoch_TP, epoch_FP, epoch_FN = 0, 0, 0, 0
 
+    # --- LOCATION 1: Initialize confidence accumulators ---
+    tp_conf_sum, fp_conf_sum = 0.0, 0.0
+    tp_count, fp_count = 0, 0
+    # Lists to store raw probabilities and targets for the offline sweep
+    all_probs, all_targets = [], []
+    
     if train:
         model.train()
     else:
@@ -251,70 +276,69 @@ def fn_run_epoch(model, collator, data, data_rag, BATCH_SIZE, optimizer, DEVICE=
             data_b = [data[j] for j in idxs]
             data_rag_b = [data_rag[j] for j in idxs]
 
-            batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(model, collator, data_b, data_rag_b)
+            batch_inputs, batch_ctx_ids, batch_ctx_mask = fn_prepare_batch(model, collator, data_b, data_rag_b, train) 
 
             if train:
                 optimizer.zero_grad()
 
             # ===== Forward =====
-            logit_outputs = model(batch_ctx_ids, batch_ctx_mask, **batch_inputs)
-            logits, targets = fn_score_postproc(output_logits=logit_outputs,input_targets=batch_inputs)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                logit_outputs = model(batch_ctx_ids, batch_ctx_mask, **batch_inputs)
+                logits, targets = fn_score_postproc(output_logits=logit_outputs,input_targets=batch_inputs)
 
-            # ===== Compute pos_weightage =====
-            total_pos = (targets == 1).sum().item()
-            total_neg = (targets == 0).sum().item()
-            pos_weight_value = total_neg / max(total_pos, 1)
-            print(f'pos weight value: {pos_weight_value}')
-            criterion = torch.nn.BCEWithLogitsLoss(reduction="mean",pos_weight=torch.tensor([pos_weight_value], device=DEVICE))
             loss = criterion(logits, targets)
 
-            # ===== Metrics =====
-            TP, FP, FN = binary_prf_counts(logits, targets, threshold=0.5)
-            TP, FP, FN = binary_prf_counts(logits, targets, threshold=threshold)
+            # --- LOCATION 2: Calculate Confidence Per Batch ---
+            probs = torch.sigmoid(logits).detach()
+            preds = (probs > threshold).float()
+
+            # Identify True Positives and False Positives
+            tp_mask = (preds == 1) & (targets == 1)
+            fp_mask = (preds == 1) & (targets == 0)
+            
+            # Accumulate confidence values
+            tp_conf_sum += probs[tp_mask].sum().item()
+            fp_conf_sum += probs[fp_mask].sum().item()
+            tp_count += tp_mask.sum().item()
+            fp_count += fp_mask.sum().item()
+            
+               # ===== Collect predictions OR calculate metrics =====
+            if not train and return_preds:
+                # Save to RAM for offline sweep
+                all_probs.append(torch.sigmoid(logits).detach().cpu())
+                all_targets.append(targets.detach().cpu())
+            else:
+                # ===== Metrics =====
+                TP, FP, FN = binary_prf_counts(logits, targets, threshold=threshold)
+                epoch_TP += TP
+                epoch_FP += FP
+                epoch_FN += FN
 
             # ===== Backprop (train only) =====
             if train:
                 loss.backward()
                 optimizer.step()
-
+                scheduler.step()
+                
             # ===== Accumulate =====
             epoch_loss += loss.item()
-            epoch_TP += TP
-            epoch_FP += FP
-            epoch_FN += FN
-
-    # ===== Final metrics =====
-    precision = epoch_TP / (epoch_TP + epoch_FP + 1e-8)
-    recall    = epoch_TP / (epoch_TP + epoch_FN + 1e-8)
-    f1        = 2 * precision * recall / (precision + recall + 1e-8)
 
     epoch_loss = epoch_loss / nbatches
 
-    return epoch_loss, precision, recall, f1
-
-def fn_prepare_batch(model, collator, data_b, data_rag_b):
-  # duplicate global_labels for every sample in batch since collator expects a list of labels (one per sample) to build the global_labels tensor
-  label_b = [global_labels for _ in data_b]
-  batch_inputs = to_dev(collator(data_b, label_b))
-
-  # Use retrieved context for cross-attention.
-  batch_ctx = model.tokenizer(
-      data_rag_b, return_tensors="pt", padding=True, truncation=True, max_length=model.gliner.config.max_len
-  )
-
-  batch_ctx_ids = batch_ctx["input_ids"].to(DEVICE)
-  batch_ctx_mask = batch_ctx["attention_mask"].to(DEVICE).long()
-
-  if batch_ctx_ids.dim() == 1:
-      batch_ctx_ids = batch_ctx_ids.unsqueeze(0)
-  if batch_ctx_mask.dim() == 1:
-      batch_ctx_mask = batch_ctx_mask.unsqueeze(0)
-
-  batch_inputs["attention_mask"] = batch_inputs["attention_mask"].long()
-  assert batch_inputs["input_ids"].shape == batch_inputs["attention_mask"].shape
-  assert batch_ctx_ids.shape == batch_ctx_mask.shape
-
-  return batch_inputs, batch_ctx_ids, batch_ctx_mask
+     # --- LOCATION 3: Final Average Calculations ---
+    avg_tp_conf = tp_conf_sum / (tp_count + 1e-8)
+    avg_fp_conf = fp_conf_sum / (fp_count + 1e-8)
+    
+    # ===== Return raw predictions if sweeping =====
+    if not train and return_preds:
+        return epoch_loss, torch.cat(all_probs, dim=0), torch.cat(all_targets, dim=0)
+    
+     # ===== Final metrics =====
+    precision = epoch_TP / (epoch_TP + epoch_FP + 1e-8)
+    recall    = epoch_TP / (epoch_TP + epoch_FN + 1e-8)
+    f1        = 2 * precision * recall / (precision + recall + 1e-8)
+    
+    return epoch_loss, precision, recall, f1, avg_tp_conf, avg_fp_conf, epoch_FP
 
 # Load GLiNER
 model = GLiNERRagCrossAttn("urchade/gliner_large-v1").to(DEVICE)
@@ -329,10 +353,31 @@ collator = model.gliner.data_collator_class(
     model.gliner.config, data_processor=model.gliner.data_processor, prepare_labels=True
 )
 
-import time
+pos_weight = torch.tensor([1.0], device=DEVICE)
+criterion = torch.nn.BCEWithLogitsLoss(reduction='mean', pos_weight=pos_weight)
+optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=1e-4, weight_decay=0.1)
 
-criterion = torch.nn.BCEWithLogitsLoss( reduction='mean')
-optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=2e-4)
+nbatches = (len(train_data) + BATCH_SIZE - 1) // BATCH_SIZE
+total_steps = nbatches * EPOCHS
+warmup_steps = nbatches * WARMUP_EPOCHS
+
+warmup_sch = torch.optim.lr_scheduler.LinearLR(
+    optimizer, 
+    start_factor=0.01, 
+    end_factor=1.0, 
+    total_iters=warmup_steps
+)
+
+main_sch = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, 
+    T_max=(total_steps - warmup_steps)
+)
+
+scheduler = torch.optim.lr_scheduler.SequentialLR(
+    optimizer, 
+    schedulers=[warmup_sch, main_sch], 
+    milestones=[warmup_steps]
+)
 
 # --- 4. Epoch-Based Train & Validate Loop ---
 save_dir = Path("models")
@@ -340,48 +385,65 @@ save_dir.mkdir(exist_ok=True)
 save_path = save_dir/"cross_attn_best.pt"
 
 best_val_loss = float('inf')
-
+best_val_f1_tracker = 0.0
 # Start training proper
 for epoch in range(1, EPOCHS+1):
 
     start_time = time.perf_counter()
-    train_loss, train_precision, train_recall, train_f1 = fn_run_epoch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=True)
-    val_loss, val_precision, val_recall, val_f1         = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE=DEVICE,train=False)
+    train_loss, train_precision, train_recall, train_f1, t_tp_c, t_fp_c, t_fp_count = fn_run_epoch(model, collator, train_data, train_data_rag, BATCH_SIZE, optimizer, criterion, DEVICE=DEVICE,train=True)
+    val_loss, val_precision, val_recall, val_f1, v_tp_c, v_fp_c, v_fp_count = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, criterion, DEVICE=DEVICE,train=False)
     
     end_time = time.perf_counter()
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
+    if val_f1 > best_val_f1_tracker:
+        best_val_f1_tracker = val_f1
         torch.save(model.context_cross_attn.state_dict(), save_path)
 
     print(f'Epoch: {epoch:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
-    print(f'Train Loss: {train_loss:.3f} | Train Precision: {train_precision:.3f} | Train Recall: {train_recall:.3f} | Train F1: {train_f1:.3f} | ')
-    print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {train_precision:.3f} | Val. Recall: {train_recall:.3f}  | Val. F1: {train_f1:.3f} | ')
-    print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {val_precision:.3f} | Val. Recall: {val_recall:.3f}  | Val. F1: {val_f1:.3f} | ')
-
+    print(f'Learning Rate: {scheduler.get_last_lr()[0]:.6f} | Train Loss: {train_loss:.3f} | Train Precision: {train_precision:.3f} | Train Recall: {train_recall:.3f} | Train F1: {train_f1:.3f} | ')
+    print(f'Learning Rate: {scheduler.get_last_lr()[0]:.6f} | Val. Loss:  {val_loss:.3f}   | Val. Precision:  {val_precision:.3f} | Val. Recall: {val_recall:.3f}  | Val. F1: {val_f1:.3f} | ')
+    print(f'>>> [DEBUG] Val FP Count: {int(v_fp_count)} | TP Conf: {v_tp_c:.3f} | FP Conf: {v_fp_c:.3f}')
 print(f"\nTraining complete. Best model weights saved to {save_path}")
 
 # Load saved model
 model.context_cross_attn.load_state_dict(torch.load(save_path))
 
-test_loss, test_acc = fn_eval_batch (model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, criterion)
-best_val_f1 = float('inf')
+print("\nRunning single validation pass for offline threshold sweep...")
+# return_preds=True tells the function to give us the raw tensors, not the calculated F1
+val_loss, val_probs, val_targets = fn_run_epoch(
+    model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, criterion, DEVICE=DEVICE, train=False, return_preds=True
+)
 
+best_val_f1 = 0
+best_threshold = 0.5
+print("\n--- Sweeping Thresholds Offline ---")
 # Sweep threshold to see which is the best for f1 score
-for i in range(1,10):
-  start_thresh = 0.995
-  threshold = (start_thresh)+ (1-start_thresh)*i/10
-  print(f'Current threshold: {threshold}')
-  val_loss, val_precision, val_recall, val_f1 = fn_run_epoch(model, collator, val_data, val_data_rag, BATCH_SIZE, optimizer, DEVICE="DEVICE",train=False, threshold = threshold)
-  print(f'Val. Loss:  {val_loss:.3f}   | Val. Precision:  {val_precision:.3f} | Val. Recall: {val_recall:.3f}  | Val. F1: {val_f1:.3f} | ')
+for i in range(1, 10):
+    threshold = i / 10.0
+    
+    # Instantly apply the threshold to the entire validation set in memory
+    preds = (val_probs > threshold).float()
 
-  if val_f1 > best_val_f1:
-    best_threshold = threshold
+    # Calculate metrics instantly
+    TP = ((preds == 1) & (val_targets == 1)).sum().item()
+    FP = ((preds == 1) & (val_targets == 0)).sum().item()
+    FN = ((preds == 0) & (val_targets == 1)).sum().item()
 
-test_loss, test_precision, test_recall, test_f1 = fn_run_epoch(model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, DEVICE="DEVICE",train=False, threshold=threshold)
+    precision = TP / (TP + FP + 1e-8)
+    recall = TP / (TP + FN + 1e-8)
+    f1 = 2 * precision * recall / (precision + recall + 1e-8)
 
-print(f'Epoch: 1 | Epoch Time: {epoch_mins}m {epoch_secs}s')
+    print(f'Threshold: {threshold:.1f} | Val. Loss: {val_loss:.3f} | Val. Precision: {precision:.3f} | Val. Recall: {recall:.3f} | Val. F1: {f1:.3f}')
+
+    if f1 > best_val_f1:
+        best_val_f1 = f1
+        best_threshold = threshold
+
+print(f'\nBest Validation F1: {best_val_f1:.3f} at Threshold: {best_threshold:.1f}')
+
+print("\n--- Running Final Test Set ---")
+test_loss, test_precision, test_recall, test_f1, _, _, _ = fn_run_epoch(model, collator, test_data, test_data_rag, BATCH_SIZE, optimizer, criterion, DEVICE=DEVICE,train=False, threshold=best_threshold)
+
+print(f'\n--- FINAL TEST RESULTS (Threshold {best_threshold:.1f}) ---')
 print(f'Test Loss: {test_loss:.3f} | Test Precision: {test_precision:.3f} | Test Recall: {test_recall:.3f} | Test F1: {test_f1:.3f} | ')
-
-print(f'Test Loss: {test_loss:.3f} | Test Acc: {test_acc*100:.2f}%')
