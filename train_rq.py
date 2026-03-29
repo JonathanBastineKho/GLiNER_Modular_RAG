@@ -8,13 +8,15 @@ from src import GLiNERRagCrossAttn
 import tqdm
 import pickle
 import time
+import torch.nn as nn
+import torch.nn.functional as F
 
 PATH_TRAIN_DATA = Path("data/combined_dataset/train.jsonl")
 PATH_VAL_DATA = Path("data/combined_dataset/validation.jsonl")
 PATH_TEST_DATA = Path("data/combined_dataset/test.jsonl")
-PATH_TRAIN_DATA_RAG = Path('data/combined_dataset/train_w_rag.pkl')
-PATH_VAL_DATA_RAG = Path('data/combined_dataset/val_w_rag.pkl')
-PATH_TEST_DATA_RAG = Path('data/combined_dataset/test_w_rag.pkl')
+PATH_TRAIN_DATA_RAG = Path('data/combined_dataset/train_w_rag_2.pkl')
+PATH_VAL_DATA_RAG = Path('data/combined_dataset/val_w_rag_2.pkl')
+PATH_TEST_DATA_RAG = Path('data/combined_dataset/test_w_rag_2.pkl')
 
 BATCH_SIZE, EPOCHS = 64, 30
 WARMUP_EPOCHS = 2
@@ -119,6 +121,32 @@ def binary_prf_counts(logits, targets, threshold=0.5):
 
   return TP, FP, FN
 
+class FocalLossWithLogits(nn.Module):
+    def __init__(self, alpha=0.75, gamma=2.0, reduction='mean'):
+        super(FocalLossWithLogits, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # Calculate standard BCE
+        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        
+        # Calculate the probabilities to determine the modulating factor
+        pt = torch.exp(-bce_loss) 
+        
+        alpha_t = targets * self.alpha + (1 - targets) * (1 - self.alpha)
+        
+        # Apply the Focal Loss formula: alpha * (1 - pt)^gamma * BCE
+        focal_loss = alpha_t * (1 - pt) ** self.gamma * bce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+        
 # --- 1. Data Loading ---
 print("Loading datasets...")
 # Should remove the MAX_SAMPLES for complete training
@@ -145,13 +173,13 @@ print("RAG retriever enabled.")
 # train_data_rag = []
 # train_data_rag = fn_rag_context(train_data, retriever, num_print=5)
 
-#train_data_rag = []
-#train_data_rag = fn_rag_context(train_data, retriever, num_print=5)
+# train_data_rag = []
+# train_data_rag = fn_rag_context(train_data, retriever, num_print=5)
 # val_data_rag = []
 # val_data_rag = fn_rag_context(val_data, retriever, num_print=5)
 
-#val_data_rag = []
-#val_data_rag = fn_rag_context(val_data, retriever, num_print=5)
+# val_data_rag = []
+# val_data_rag = fn_rag_context(val_data, retriever, num_print=5)
 print("RAG retriever done.")
 # test_data_rag = []
 # test_data_rag = fn_rag_context(test_data, retriever, num_print=5)
@@ -353,9 +381,10 @@ collator = model.gliner.data_collator_class(
     model.gliner.config, data_processor=model.gliner.data_processor, prepare_labels=True
 )
 
-pos_weight = torch.tensor([1.0], device=DEVICE)
-criterion = torch.nn.BCEWithLogitsLoss(reduction='mean', pos_weight=pos_weight)
-optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=1e-4, weight_decay=0.1)
+# pos_weight = torch.tensor([0.8], device=DEVICE)
+# criterion = torch.nn.BCEWithLogitsLoss(reduction='mean', pos_weight=pos_weight)
+criterion = FocalLossWithLogits(alpha=0.25, gamma=2.0, reduction='mean')
+optimizer = torch.optim.AdamW(model.context_cross_attn.parameters(), lr=1e-4, weight_decay=0.01)
 
 nbatches = (len(train_data) + BATCH_SIZE - 1) // BATCH_SIZE
 total_steps = nbatches * EPOCHS
