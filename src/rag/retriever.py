@@ -9,9 +9,9 @@ class RAGRetriever:
 	def __init__(
 		self,
 		k : int = 3,
-		db_path: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/vector_store/")),
-		collection_name: str = "biomedical_knowledge_base",
-		embedding_model_name: str = "all-MiniLM-L6-v2"
+		db_path: str = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/pubmedbert_vector_store/")),
+		collection_name: str = "biomedical_knowledge_base_pubmedbert",
+		embedding_model_name: str = "pritamdeka/S-PubMedBert-MS-MARCO"
 	):	 
 		"""
 		Initializes the retriever to connect with the pre-built ChromaDB.
