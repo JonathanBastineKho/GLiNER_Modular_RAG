@@ -7,50 +7,40 @@ from torch.utils.data import Dataset
 
 
 class GlinerRagDataset(Dataset):
-    """
-    Loads a GLiNER-formatted .jsonl file and its paired RAG context .pkl.
-
-    Each item returns:
-        sample (dict): {"tokenized_text": [...], "ner": [[start, end, label], ...]}
-        rag_context (str): pre-retrieved context string for that sample
-    """
-
-    def __init__(self, root: str, split: str = "train"):
-        root = Path(root)
-
-        split_map = {
-            "train": ("train.jsonl",      "train_w_rag.pkl"),
-            "val":   ("validation.jsonl", "val_w_rag.pkl"),
-            "test":  ("test.jsonl",       "test_w_rag.pkl"),
-        }
-
-        if split not in split_map:
-            raise ValueError(f"split must be one of {list(split_map)}, got '{split}'")
-
-        jsonl_name, pkl_name = split_map[split]
-
+    def __init__(self, pairs: list[tuple[str, str]]):
+        """
+        Args:
+            pairs: list of (jsonl_path, pkl_path) tuples
+        """
         self.samples = []
-        with open(root / jsonl_name, "r", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                raw = json.loads(line)
-                self.samples.append({
-                    "tokenized_text": raw["tokens"],
-                    "ner": raw.get("ner", []),
-                })
+        self.rag_contexts = []
 
-        with open(root / pkl_name, "rb") as f:
-            self.rag_contexts = pickle.load(f)
+        for jsonl_path, pkl_path in pairs:
+            samples = []
+            with open(jsonl_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    raw = json.loads(line)
+                    samples.append({
+                        "tokenized_text": raw["tokens"],
+                        "ner": raw.get("ner", []),
+                    })
 
-        assert len(self.samples) == len(self.rag_contexts), (
-            f"Mismatch: {len(self.samples)} samples vs {len(self.rag_contexts)} RAG contexts"
-        )
+            with open(pkl_path, "rb") as f:
+                rag_contexts = pickle.load(f)
 
-    def __len__(self) -> int:
+            assert len(samples) == len(rag_contexts), (
+                f"Mismatch in {jsonl_path}: {len(samples)} samples vs {len(rag_contexts)} RAG contexts"
+            )
+
+            self.samples.extend(samples)
+            self.rag_contexts.extend(rag_contexts)
+
+    def __len__(self):
         return len(self.samples)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx):
         return self.samples[idx], self.rag_contexts[idx]
 
 
