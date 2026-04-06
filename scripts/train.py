@@ -160,6 +160,14 @@ def threshold_sweep(val_probs, val_targets):
             best_f1, best_thresh = f, t
     return best_thresh, best_f1
 
+def build_pairs(domain_dirs: list[str], split: str) -> list[tuple]:
+    split_map = {
+        "train": ("train.jsonl",      "train_w_rag.pkl"),
+        "val":   ("validation.jsonl", "val_w_rag.pkl"),
+        "test":  ("test.jsonl",       "test_w_rag.pkl"),
+    }
+    jsonl_name, pkl_name = split_map[split]
+    return [(Path(d) / jsonl_name, Path(d) / pkl_name) for d in domain_dirs]
 
 def main(args):
     set_seed(args.seed)
@@ -172,9 +180,9 @@ def main(args):
     wandb.init(project=args.wandb_project, name=args.run_name, config=vars(args))
 
     # --- Data ---
-    train_ds = GlinerRagDataset(args.data_dir, split="train")
-    val_ds   = GlinerRagDataset(args.data_dir, split="val")
-    test_ds  = GlinerRagDataset(args.data_dir, split="test")
+    train_ds = GlinerRagDataset(build_pairs(args.train_domains, "train"))
+    val_datasets  = {Path(d).name: GlinerRagDataset(build_pairs([d], "val"))  for d in args.val_domains}
+    test_datasets = {Path(d).name: GlinerRagDataset(build_pairs([d], "test")) for d in args.val_domains}
 
     # --- Model ---
     model = GLiNERRagCrossAttn(args.model_name).to(device)
@@ -197,21 +205,24 @@ def main(args):
     eval_collator = GlinerRagCollator(
         model.gliner, global_labels=global_labels,
         max_len=model.gliner.config.max_len,
-        prepare_labels=True, neg_ratio=0.0,      # no negatives at eval
+        prepare_labels=True, neg_ratio=0.0,
     )
 
+    # --- Loaders ---
     train_loader = DataLoader(
         train_ds, batch_size=args.batch_size, shuffle=True,
         collate_fn=train_collator, num_workers=args.num_workers, pin_memory=True,
     )
-    val_loader = DataLoader(
-        val_ds, batch_size=args.batch_size, shuffle=False,
-        collate_fn=eval_collator, num_workers=args.num_workers, pin_memory=True,
-    )
-    test_loader = DataLoader(
-        test_ds, batch_size=args.batch_size, shuffle=False,
-        collate_fn=eval_collator, num_workers=args.num_workers, pin_memory=True,
-    )
+    val_loaders = {
+        name: DataLoader(ds, batch_size=args.batch_size, shuffle=False,
+                         collate_fn=eval_collator, num_workers=args.num_workers, pin_memory=True)
+        for name, ds in val_datasets.items()
+    }
+    test_loaders = {
+        name: DataLoader(ds, batch_size=args.batch_size, shuffle=False,
+                         collate_fn=eval_collator, num_workers=args.num_workers, pin_memory=True)
+        for name, ds in test_datasets.items()
+    }
 
     # --- Optimiser + scheduler ---
     criterion = torch.nn.BCEWithLogitsLoss(reduction="mean")
@@ -245,10 +256,21 @@ def main(args):
         train_loss, train_p, train_r, train_f1 = train_one_epoch(
             model, train_loader, optimizer, scheduler, criterion, device, epoch
         )
-        val_loss, val_p, val_r, val_f1 = evaluate(
-            model, val_loader, criterion, device
-        )
 
+        # --- per-domain val ---
+        val_f1s = {}
+        for domain_name, loader in val_loaders.items():
+            val_loss, val_p, val_r, val_f1 = evaluate(model, loader, criterion, device)
+            val_f1s[domain_name] = val_f1
+            wandb.log({
+                f"val/{domain_name}/loss": val_loss,
+                f"val/{domain_name}/precision": val_p,
+                f"val/{domain_name}/recall": val_r,
+                f"val/{domain_name}/f1": val_f1,
+                "epoch": epoch,
+            })
+
+        avg_val_f1 = sum(val_f1s.values()) / len(val_f1s)
         elapsed_m, elapsed_s = epoch_time(t0, time.perf_counter())
 
         wandb.log({
@@ -256,48 +278,62 @@ def main(args):
             "lr": scheduler.get_last_lr()[0],
             "train/loss": train_loss, "train/precision": train_p,
             "train/recall": train_r,  "train/f1": train_f1,
-            "val/loss":   val_loss,   "val/precision": val_p,
-            "val/recall": val_r,      "val/f1": val_f1,
+            "val/avg_f1": avg_val_f1,
         })
 
         logger.info(
             f"Epoch {epoch:02} [{elapsed_m}m{elapsed_s}s] "
             f"| train loss {train_loss:.3f} P {train_p:.3f} R {train_r:.3f} F1 {train_f1:.3f} "
-            f"| val loss {val_loss:.3f} P {val_p:.3f} R {val_r:.3f} F1 {val_f1:.3f}"
+            f"| val avg F1 {avg_val_f1:.3f} {val_f1s}"
         )
 
-        if val_f1 > best_val_f1:
-            best_val_f1 = val_f1
+        if avg_val_f1 > best_val_f1:
+            best_val_f1 = avg_val_f1
             torch.save(model.context_cross_attn.state_dict(), save_path)
-            logger.info(f"  ↑ New best val F1 {best_val_f1:.3f} — saved to {save_path}")
-            wandb.config.update({"best_epoch": epoch, "best_val_f1": best_val_f1})
+            logger.info(f"  ↑ New best avg val F1 {best_val_f1:.3f} — saved to {save_path}")
+            wandb.run.summary["best_epoch"] = epoch
+            wandb.run.summary["best_val_f1"] = best_val_f1
 
-    # --- Threshold sweep on val ---
+    # --- Threshold sweep on val (combined across all val domains) ---
     logger.info("\nLoading best checkpoint for threshold sweep...")
     model.context_cross_attn.load_state_dict(torch.load(save_path))
-    _, val_probs, val_targets = evaluate(
-        model, val_loader, criterion, device, return_preds=True
-    )
-    best_thresh, best_val_f1 = threshold_sweep(val_probs, val_targets)
+
+    all_val_probs, all_val_targets = [], []
+    for loader in val_loaders.values():
+        _, val_probs, val_targets = evaluate(model, loader, criterion, device, return_preds=True)
+        all_val_probs.append(val_probs)
+        all_val_targets.append(val_targets)
+    all_val_probs   = torch.cat(all_val_probs)
+    all_val_targets = torch.cat(all_val_targets)
+
+    best_thresh, best_val_f1 = threshold_sweep(all_val_probs, all_val_targets)
     logger.info(f"Best threshold: {best_thresh:.1f} | Val F1: {best_val_f1:.3f}")
     wandb.config.update({"best_threshold": best_thresh})
 
-    # --- Final test ---
+    # --- Final test per domain ---
     logger.info("\n--- Final test ---")
-    test_loss, test_p, test_r, test_f1 = evaluate(
-        model, test_loader, criterion, device, threshold=best_thresh
-    )
-    logger.info(
-        f"Test loss {test_loss:.3f} | P {test_p:.3f} | R {test_r:.3f} | F1 {test_f1:.3f}"
-    )
-    wandb.log({"test/loss": test_loss, "test/precision": test_p,
-               "test/recall": test_r, "test/f1": test_f1})
+    test_f1s = {}
+    for domain_name, loader in test_loaders.items():
+        test_loss, test_p, test_r, test_f1 = evaluate(
+            model, loader, criterion, device, threshold=best_thresh
+        )
+        test_f1s[domain_name] = test_f1
+        logger.info(f"  test [{domain_name}] P {test_p:.3f} R {test_r:.3f} F1 {test_f1:.3f}")
+        wandb.log({
+            f"test/{domain_name}/loss": test_loss,
+            f"test/{domain_name}/precision": test_p,
+            f"test/{domain_name}/recall": test_r,
+            f"test/{domain_name}/f1": test_f1,
+        })
+
+    avg_test_f1 = sum(test_f1s.values()) / len(test_f1s)
+    logger.info(f"  test avg F1: {avg_test_f1:.3f}")
+    wandb.log({"test/avg_f1": avg_test_f1})
     wandb.finish()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GLiNER RAG cross-attention training")
-    parser.add_argument("--data_dir",      default="data/combined_dataset")
     parser.add_argument("--model_name",    default="urchade/gliner_large-v1")
     parser.add_argument("--save_dir",      default="models")
     parser.add_argument("--wandb_project", default="gliner_modular_rag")
@@ -310,4 +346,8 @@ if __name__ == "__main__":
     parser.add_argument("--neg_ratio",     type=float, default=0.5)
     parser.add_argument("--num_workers",   type=int,   default=4)
     parser.add_argument("--seed",          type=int,   default=42)
+    parser.add_argument("--train_domains", nargs="+", required=True,
+                        help="Paths to train domain folders e.g. data/anatem data/ncbi")
+    parser.add_argument("--val_domains",   nargs="+", required=True,
+                        help="Paths to val/test domain folders e.g. data/politics data/ai")
     main(parser.parse_args())
